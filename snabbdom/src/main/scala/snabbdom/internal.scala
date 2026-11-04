@@ -19,9 +19,6 @@ package snabbdom
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSGlobal
 
-// Minimal facades for the ES2015 collections, used as scratch space inside
-// `init`. Nothing here is visible outside the library.
-
 @js.native
 @JSGlobal("Set")
 private[snabbdom] class JSSet[A]() extends js.Object {

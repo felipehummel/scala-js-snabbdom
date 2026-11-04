@@ -295,21 +295,97 @@ class ChildReconciliationSuite extends BaseSuite {
     assertEquals(children.map(counterIn(_).disconnects).sum, 2)
   }
 
-  mounted.test("skips a child patched again with the same VNode instance") {
+  mounted.test("patches an init-transformed child again from its own VNode") {
     elm =>
-      var updates = 0
-      val counting =
-        Hooks(update = Some((_: PatchedVNode, _: VNode) => updates += 1))
-      val shared = h("span", VNodeData(hook = Some(counting)), "same")
+      val replaceChildren: InitHook = {
+        case vnode: VNode.Element => vnode.copy(children = List("transformed"))
+        case vnode                => vnode
+      }
+      val child =
+        h(
+          "span",
+          VNodeData(hook = Some(Hooks(init = Some(replaceChildren)))),
+          "original"
+        )
 
-      val before = patch(elm, h("div", List(shared, h("span", "a"))))
-      val after = patch(before, h("div", List(shared, h("span", "b"))))
+      val before = patch(elm, h("div", List(child, h("span", "a"))))
+      assertEquals(
+        childElements(before).map(_.textContent),
+        List("transformed", "a")
+      )
 
-      assertEquals(updates, 0)
+      val after = patch(before, h("div", List(child, h("span", "b"))))
       assertEquals(
         childElements(after).map(_.textContent),
-        List("same", "b")
+        List("original", "b")
       )
+  }
+
+  mounted.test("skips the hooks of a rebuilt child equal to the last one") {
+    elm =>
+      var calls = List.empty[String]
+      val counting = Hooks(
+        update = Some((_: PatchedVNode, _: VNode) => calls ::= "update"),
+        postpatch =
+          Some((_: PatchedVNode, _: PatchedVNode) => calls ::= "postpatch")
+      )
+      def child(text: String) =
+        h("span", VNodeData(hook = Some(counting)), text)
+
+      val before = patch(elm, h("div", List(child("same"), h("span", "a"))))
+      val equal = patch(before, h("div", List(child("same"), h("span", "b"))))
+      assertEquals(calls, Nil)
+
+      patch(equal, h("div", List(child("changed"), h("span", "b"))))
+      assertEquals(calls, List("postpatch", "update"))
+  }
+
+  mounted.test("keeps the comment child of a rebuilt equal parent") { elm =>
+    def parent = h("div", List(h.comment("slot"), h("span", "x")))
+    val before = patch(elm, h("div", List(parent, h("span", "a"))))
+    val commentBefore = before.node.firstChild.firstChild
+
+    val after = patch(before, h("div", List(parent, h("span", "b"))))
+
+    assert(after.node.firstChild.firstChild eq commentBefore)
+    assertEquals(childElements(after).map(_.textContent), List("x", "b"))
+  }
+
+  mounted.test("keeps the comment child when only the parent's data changes") {
+    elm =>
+      def parent(cls: String) = h(
+        "div",
+        VNodeData(classes = Map(cls -> true)),
+        List(h.comment("slot"), h("span", "x"))
+      )
+      val before = patch(elm, parent("a"))
+      val commentBefore = before.node.firstChild
+
+      val after = patch(before, parent("b"))
+
+      assert(after.node.firstChild eq commentBefore)
+      assertEquals(
+        after.node.asInstanceOf[dom.Element].getAttribute("class"),
+        "b"
+      )
+  }
+
+  mounted.test("matches duplicate keys past a sibling with another selector") {
+    elm =>
+      def x(sel: String, text: String) =
+        h(sel, VNodeData(key = Some("x")), List(h("h3", text), h(counterTag)))
+      val before =
+        patch(elm, h("div", List(x("div", "0"), x("span", "1"), x("div", "2"))))
+      val elementsBefore = childElements(before)
+
+      val after =
+        patch(before, h("div", List(x("div", "0"), x("div", "2"))))
+
+      val children = childElements(after)
+      assertEquals(children.map(_.textContent), List("0", "2"))
+      assert(children(0) eq elementsBefore(0))
+      assert(children(1) eq elementsBefore(2))
+      children.map(counterIn).foreach(assertConnectedOnce)
   }
 
   mounted.test("moves keyed siblings around an unkeyed child") { elm =>

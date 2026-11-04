@@ -113,7 +113,7 @@ object init {
 
       val vnode0 = VNode.applyInitHook(vnode00)
 
-      val pvnode = vnode0 match {
+      vnode0 match {
         case VNode.Comment(content) =>
           val node = api.createComment(content)
           PatchedVNode.comment(content, node)
@@ -124,7 +124,7 @@ object init {
             api.createTextNode(text)
           )
 
-        case VNode.Element(sel, data, children) =>
+        case vnode @ VNode.Element(sel, data, children) =>
           val hashIdx = sel.indexOf("#")
           val dotIdx = sel.indexOf(".", hashIdx)
           val hash = if (hashIdx > 0) hashIdx else sel.length
@@ -140,12 +140,14 @@ object init {
             case None =>
               api.createElement(tag) // TODO what about data argument?
           }
-          val pvnode0 = PatchedVNode.Element(
-            sel,
-            data,
-            children = children.map(createElm(_, insertedVNodeQueue)),
-            node = elm
-          )
+          val pvnode0 = PatchedVNode
+            .Element(
+              sel,
+              data,
+              children = children.map(createElm(_, insertedVNodeQueue)),
+              node = elm
+            )
+            .builtFrom(vnode)
           if (hash < dot) elm.setAttribute("id", sel.substring(hash + 1, dot))
           if (dotIdx > 0) {
             val classes = sel.substring(dot + 1)
@@ -156,18 +158,10 @@ object init {
             )
           }
 
-          var createHooks = cbs.create
-          while (createHooks.nonEmpty) {
-            createHooks.head(pvnode0)
-            createHooks = createHooks.tail
-          }
+          cbs.create.foreach(hook => hook(pvnode0))
 
           // insert children into dom
-          var patchedChildren = pvnode0.children
-          while (patchedChildren.nonEmpty) {
-            api.appendChild(elm, patchedChildren.head.node)
-            patchedChildren = patchedChildren.tail
-          }
+          pvnode0.children.foreach(child => api.appendChild(elm, child.node))
 
           data.hook match {
             case Some(hooks) =>
@@ -179,8 +173,6 @@ object init {
           pvnode0
 
       }
-      pvnode.source = vnode00
-      pvnode
 
     }
 
@@ -191,16 +183,8 @@ object init {
             case Some(hooks) => hooks.destroy.foreach(_(vnode))
             case None        => ()
           }
-          var destroyHooks = cbs.destroy
-          while (destroyHooks.nonEmpty) {
-            destroyHooks.head(vnode)
-            destroyHooks = destroyHooks.tail
-          }
-          var rest = children
-          while (rest.nonEmpty) {
-            invokeDestroyHook(rest.head)
-            rest = rest.tail
-          }
+          cbs.destroy.foreach(_(vnode))
+          children.foreach(invokeDestroyHook)
         case _ => ()
       }
     }
@@ -215,49 +199,22 @@ object init {
         parentElm: dom.Node,
         vnodes: List[PatchedVNode]
     ): Unit = {
-      var rest = vnodes
-      while (rest.nonEmpty) {
-        rest.head match {
-          case child @ PatchedVNode.Element(_, data, _, elm) =>
-            invokeDestroyHook(child)
-            if (cbs.remove.isEmpty && !hasRemoveHook(child)) {
-              api.parentNode(elm).foreach(api.removeChild(_, elm))
-            } else {
-              val listeners = cbs.remove.length + 1
-              val rm = createRmCb(elm, listeners)
-              cbs.remove.foreach(_(child, rm))
-              data.hook.flatMap(_.remove).fold(rm()) { hook =>
-                hook(child, rm); ()
-              }
+      vnodes.foreach {
+        case child @ PatchedVNode.Element(_, data, _, elm) =>
+          invokeDestroyHook(child)
+          if (cbs.remove.isEmpty && !hasRemoveHook(child)) {
+            api.parentNode(elm).foreach(api.removeChild(_, elm))
+          } else {
+            val listeners = cbs.remove.length + 1
+            val rm = createRmCb(elm, listeners)
+            cbs.remove.foreach(_(child, rm))
+            data.hook.flatMap(_.remove).fold(rm()) { hook =>
+              hook(child, rm); ()
             }
-          case other =>
-            api.removeChild(parentElm, other.node)
-        }
-        rest = rest.tail
+          }
+        case other =>
+          api.removeChild(parentElm, other.node)
       }
-    }
-
-    // Removes every child of `parentElm` at once when nothing can delay a
-    // removal and the element holds exactly `vnodes`. Returns false, having
-    // done nothing, when that does not hold.
-    def removeAllChildrenAtOnce(
-        parentElm: dom.Node,
-        vnodes: List[PatchedVNode],
-        count: Int
-    ): Boolean = {
-      val possible =
-        cbs.remove.isEmpty &&
-          parentElm.childNodes.length == count &&
-          !vnodes.exists(hasRemoveHook)
-      if (possible) {
-        var rest = vnodes
-        while (rest.nonEmpty) {
-          invokeDestroyHook(rest.head)
-          rest = rest.tail
-        }
-        api.setTextContent(parentElm, Some(""))
-      }
-      possible
     }
 
     def updateChildren(
@@ -267,27 +224,13 @@ object init {
         insertedVnodeQueue: VNodeQueue
     ): List[PatchedVNode] = {
 
-      // Scratch space local to this call. An unkeyed child matches the old
-      // child at its position and stays where it is (anchored). A keyed child
-      // matches the first unclaimed old child with its key and may move.
-      val oldLen = oldCh.length
-      val newLen = newCh.length
-      val olds = new Array[PatchedVNode](oldLen)
-      val news = new Array[VNode](newLen)
-      var fillOld = oldCh
-      var i = 0
-      while (i < oldLen) {
-        olds(i) = fillOld.head
-        fillOld = fillOld.tail
-        i += 1
-      }
-      var fillNew = newCh
-      i = 0
-      while (i < newLen) {
-        news(i) = fillNew.head
-        fillNew = fillNew.tail
-        i += 1
-      }
+      // An unkeyed child matches the old child at its position and never
+      // moves. A keyed child matches the first unclaimed old child with its
+      // key and selector, and may move.
+      val olds = oldCh.toArray
+      val news = newCh.toArray
+      val oldLen = olds.length
+      val newLen = news.length
       val claimed = new Array[Boolean](oldLen)
       val children = new Array[PatchedVNode](newLen)
       val movable = new Array[Boolean](newLen)
@@ -306,7 +249,7 @@ object init {
 
       if (start == oldLen) {
         // Every old child matched in place, so no key or position can match
-        // the remaining new children: they are created and appended.
+        // the remaining new children.
         var j = start
         while (j < newLen) {
           children(j) = createElm(news(j), insertedVnodeQueue)
@@ -320,20 +263,8 @@ object init {
         return toList(children)
       }
 
-      if (start == newLen) {
-        // Every new child matched in place: the remaining old ones go.
-        var removed = List.empty[PatchedVNode]
-        var k = oldLen - 1
-        while (k >= start) {
-          removed = olds(k) :: removed
-          k -= 1
-        }
-        removeAllVnodes(parentElm, removed)
-        return toList(children)
-      }
-
-      // Unclaimed old children by key, in order: `firstWithKey` holds the
-      // first index for each key and `nextWithKey` chains the rest.
+      // Unclaimed keyed old children, in order: `firstWithKey` holds the first
+      // index for each key and `nextWithKey` the next index with the same key.
       var firstWithKey: JSMap[String, Int] = null
       var nextWithKey: Array[Int] = null
       def indexKeys(): Unit = {
@@ -369,11 +300,19 @@ object init {
         vnode match {
           case VNode.Element(_, data, _) if data.key.isDefined =>
             if (firstWithKey == null) indexKeys()
-            var candidate = firstWithKey.get(data.key.get).getOrElse(-1)
-            while (candidate >= 0 && matched < 0) {
-              if (!claimed(candidate) && sameVnode(olds(candidate), vnode)) {
-                matched = candidate
-              } else candidate = nextWithKey(candidate)
+            val key = data.key.get
+            var previous = -1
+            var candidate = firstWithKey.get(key).getOrElse(-1)
+            while (candidate >= 0 && !sameVnode(olds(candidate), vnode)) {
+              previous = candidate
+              candidate = nextWithKey(candidate)
+            }
+            if (candidate >= 0) {
+              // Unlinked, so later lookups never walk past claimed children.
+              val next = nextWithKey(candidate)
+              if (previous < 0) firstWithKey.set(key, next)
+              else nextWithKey(previous) = next
+              matched = candidate
             }
             movable(j) = true
           case _ =>
@@ -394,16 +333,11 @@ object init {
         j += 1
       }
 
-      // Every old child goes: clear them in one step before placing the new
-      // ones, when nothing can delay their removal.
-      val oldRemoved =
-        claimedCount == 0 && removeAllChildrenAtOnce(parentElm, oldCh, oldLen)
-
       if (anchoredAfterStart)
         placeAroundAnchors(parentElm, olds, children, movable)
       else placeWithFewestMoves(parentElm, children, oldIndex)
 
-      if (!oldRemoved && claimedCount < oldLen) {
+      if (claimedCount < oldLen) {
         var removed = List.empty[PatchedVNode]
         k = oldLen - 1
         while (k >= 0) {
@@ -417,18 +351,14 @@ object init {
 
     }
 
-    // Orders a child list in which every matched child may move (keyed) and
-    // every other child was just created. Children whose old positions form
-    // the longest increasing run stay put; the rest are inserted before their
-    // next sibling, from last to first.
+    // Moving a node disconnects it from the document, so the children whose
+    // old positions form the longest increasing run stay where they are.
     def placeWithFewestMoves(
         parentElm: dom.Node,
         children: Array[PatchedVNode],
         oldIndex: Array[Int]
     ): Unit = {
       val stays = longestIncreasingRun(oldIndex)
-      // Walks back over runs of children that must be inserted, and inserts
-      // each run in document order before the child that follows it.
       var next: Option[dom.Node] = None
       var end = children.length - 1
       while (end >= 0) {
@@ -449,9 +379,7 @@ object init {
       }
     }
 
-    // Orders a child list that holds anchored (unkeyed) children, which never
-    // move. Walks forward and inserts each movable child before the next new
-    // child in the DOM, skipping old children that are being removed.
+    // Matched unkeyed children never move.
     def placeAroundAnchors(
         parentElm: dom.Node,
         olds: Array[PatchedVNode],
@@ -505,18 +433,9 @@ object init {
         case _ => vnode00
       }
 
-      // Nothing to do when the caller passed the very VNode instance this node
-      // came from, or a prepatch hook (a thunk) answered with the old node's
-      // own VNode.
-      val unchanged = (vnode eq oldVnode.source) || (
-        (vnode ne vnode00) && (oldVnode match {
-          case old: PatchedVNode.Element => vnode eq old.toVNodeIfComputed
-          case _                         => false
-        })
-      )
-      if (unchanged) {
+      if (PatchedVNode.matches(oldVnode, vnode)) {
 
-        oldVnode
+        oldVnode // nothing to do
 
       } else {
 
@@ -550,19 +469,15 @@ object init {
 
           case (
                 PatchedVNode.Element(_, _, oldCh, elm),
-                VNode.Element(sel, data, ch)
+                element @ VNode.Element(sel, data, ch)
               ) =>
-            (oldCh, ch) match {
-              case (oldCh @ _ :: _, ch @ _ :: _) =>
-                PatchedVNode.element(
-                  sel,
-                  data,
-                  updateChildren(elm, oldCh, ch, insertedVNodeQueue),
-                  elm
-                )
+            val children = (oldCh, ch) match {
+              case (_ :: _, _ :: _) =>
+                if (PatchedVNode.childrenMatch(oldCh, ch)) oldCh
+                else updateChildren(elm, oldCh, ch, insertedVNodeQueue)
 
-              case (Nil, ch @ _ :: _) =>
-                val patchedChildren = ch.map { vnode =>
+              case (Nil, _ :: _) =>
+                ch.map { vnode =>
                   val pvnode = createElm(vnode, insertedVNodeQueue)
                   api.insertBefore(
                     elm,
@@ -571,32 +486,16 @@ object init {
                   )
                   pvnode
                 }
-                PatchedVNode.Element(
-                  sel,
-                  data,
-                  patchedChildren,
-                  elm
-                )
 
-              case (oldCh @ _ :: _, Nil) =>
-                if (!removeAllChildrenAtOnce(elm, oldCh, oldCh.length)) {
-                  removeAllVnodes(elm, oldCh)
-                }
-                PatchedVNode.Element(
-                  sel,
-                  data,
-                  Nil,
-                  elm
-                )
+              case (_ :: _, Nil) =>
+                removeAllVnodes(elm, oldCh)
+                Nil
+
               case (Nil, Nil) =>
-                PatchedVNode.Element(
-                  sel,
-                  data,
-                  Nil,
-                  elm
-                )
+                Nil
 
             }
+            PatchedVNode.Element(sel, data, children, elm).builtFrom(element)
 
           case _ =>
             throw new AssertionError("trying to patch incompatible nodes")
@@ -613,7 +512,6 @@ object init {
           case _ => ()
         }
 
-        patchedVNode.source = vnode00
         patchedVNode
 
       }
@@ -678,8 +576,7 @@ object init {
     }
   }
 
-  // Marks one longest strictly increasing subsequence of the non-negative
-  // entries of `seq` (negative entries never belong to it). O(n log n).
+  // Negative entries never belong to the run.
   private def longestIncreasingRun(seq: Array[Int]): Array[Boolean] = {
     val n = seq.length
     val inRun = new Array[Boolean](n)

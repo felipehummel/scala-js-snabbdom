@@ -79,8 +79,8 @@ object EventListeners {
     while (names.hasNext) elm.addEventListener(names.next(), listener.fn, false)
   }
 
-  // Keeps the old node's listener: only event names that appear or disappear
-  // touch the DOM, and the listener now dispatches to the new node.
+  // `removeEventListener` needs the function that was added, so the old node's
+  // listener is reused and pointed at the new node.
   private def updateEventListeners(
       oldVnode: PatchedVNode.Element,
       vnode: PatchedVNode.Element

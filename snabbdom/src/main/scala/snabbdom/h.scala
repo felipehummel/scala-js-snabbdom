@@ -107,10 +107,7 @@ object h {
   }
 
   private def isSvg(sel: String): Boolean = {
-    // Compares characters, so no substring is allocated per call.
-    sel.length >= 3 && sel.charAt(0) == 's' && sel.charAt(1) == 'v' &&
-    sel.charAt(2) == 'g' &&
-    (sel.length == 3 || sel.charAt(3) == '.' || sel.charAt(3) == '#')
+    sel.startsWith("svg") && (sel.length == 3 || sel(3) == '.' || sel(3) == '#')
   }
 
   private val svgNamespace = "http://www.w3.org/2000/svg"

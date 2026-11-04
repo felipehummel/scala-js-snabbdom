@@ -23,12 +23,6 @@ import scalajs.js
 sealed trait PatchedVNode {
   def node: dom.Node // the corresponding node in the DOM
   def toVNode: VNode
-
-  // The VNode this node was last created or patched from, as the caller
-  // passed it (before init and prepatch hooks). Patching with the very same
-  // VNode instance again has nothing to do. Set once by `init`, right after
-  // construction, and never visible outside the library.
-  private[snabbdom] var source: VNode = null
 }
 
 object PatchedVNode {
@@ -52,13 +46,13 @@ object PatchedVNode {
       }
     }
 
-    // The DOM listener for this element's `on` handlers. The EventListeners
-    // module hands it from the old node to the new one on every patch, so the
-    // element keeps one browser listener per event name.
+    // Handed from each patched version of an element to the next while `on`
+    // stays non-empty, so a patch adds or removes only the event names that
+    // changed.
     private[snabbdom] var listener: Listener = null
 
-    // Immutable, so the conversion is computed at most once.
-    private var vnodeCache: VNode = null
+    // When non-null, equal to the conversion `toVNode` would build.
+    private[PatchedVNode] var vnodeCache: VNode = null
 
     override def toVNode: VNode = {
       if (vnodeCache == null) {
@@ -67,12 +61,42 @@ object PatchedVNode {
       vnodeCache
     }
 
-    // `toVNode` if something already asked for it, otherwise null.
-    private[snabbdom] def toVNodeIfComputed: VNode = vnodeCache
+    // Lets `toVNode` answer with `vnode`, the value this node was built from,
+    // when the children prove it equal to the conversion.
+    private[snabbdom] def builtFrom(vnode: VNode.Element): this.type = {
+      if (childrenMatch(children, vnode.children)) vnodeCache = vnode
+      this
+    }
 
   }
 
-  // Dispatches DOM events to the handlers of the element's current vnode.
+  /** `vnode == patched.toVNode`, decided without building the conversion. */
+  private[snabbdom] def matches(patched: PatchedVNode, vnode: VNode): Boolean =
+    (patched, vnode) match {
+      case (e: Element, v: VNode.Element) =>
+        val cached = e.vnodeCache
+        if (cached != null) v == cached
+        else
+          e.sel == v.sel && e.data == v.data &&
+          childrenMatch(e.children, v.children)
+      case (Text(content, _), VNode.Text(other))       => content == other
+      case (Comment(content, _), VNode.Comment(other)) => content == other
+      case _                                           => false
+    }
+
+  private[snabbdom] def childrenMatch(
+      patched: List[PatchedVNode],
+      vnodes: List[VNode]
+  ): Boolean = {
+    var ps = patched
+    var vs = vnodes
+    while (ps.nonEmpty && vs.nonEmpty && matches(ps.head, vs.head)) {
+      ps = ps.tail
+      vs = vs.tail
+    }
+    ps.isEmpty && vs.isEmpty
+  }
+
   private[snabbdom] final class Listener(var vnode: Element) {
     val fn: js.Function1[dom.Event, Unit] =
       (event: dom.Event) => vnode.handleEvent(event)

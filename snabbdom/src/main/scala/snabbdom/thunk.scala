@@ -104,10 +104,7 @@ object thunk {
         data = vnode.data.copy(fn = curFn, args = args)
       )
     } else {
-      // Answering with the VNode the old node came from lets `patchVnode`
-      // skip it with a reference check instead of comparing subtrees.
-      val source = oldVnode.source
-      if (source != null) source else oldVnode.toVNode
+      oldVnode.toVNode
     }
   }
 
