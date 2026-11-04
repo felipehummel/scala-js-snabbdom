@@ -1,0 +1,483 @@
+/-
+Correctness of `patchVnode` and the child-matching fold.
+
+`Patched d old c d'`: patching `old` produced `c`, the DOM agrees with `c`
+(`Repr`), `c` reuses `old`'s root node, and nothing outside `old`'s subtree
+changed. `patchVnode_spec` proves it by mutual induction with
+`matchChildren_spec`, whose invariant (`MPre`) tracks which old children have
+been claimed so far.
+-/
+import Snabbdom.Proofs.Children
+
+namespace Snabbdom
+
+/-! ### Specifications -/
+
+/-- What `patchVnode` assumes about its `old` argument. -/
+structure PPre (d : Dom) (old : PNode) : Prop where
+  wf : HeapWF d
+  repr : Repr d old
+  ids_nodup : old.ids.Nodup
+  ids_lt : ∀ i ∈ old.ids, i < d.next
+  wf_old : old.toVNode.WF
+
+structure Patched (d : Dom) (old c : PNode) (d' : Dom) : Prop where
+  wf : HeapWF d'
+  ok : d'.ok = d.ok
+  le : d.next ≤ d'.next
+  frame : ∀ i, i < d.next → i ∉ old.ids → d'.nodes i = d.nodes i
+  repr : Repr d' c
+  ids_nodup : c.ids.Nodup
+  ids_range : ∀ i ∈ c.ids, i ∈ old.ids ∨ (d.next ≤ i ∧ i < d'.next)
+  node : c.node = old.node
+  parent : ∀ x, d.nodes old.node = some x → ∃ x', d'.nodes old.node = some x' ∧ x'.parent = x.parent
+
+theorem Patched.refl {d : Dom} {old : PNode} (h : PPre d old) : Patched d old old d :=
+  ⟨h.wf, rfl, Nat.le_refl _, fun _ _ _ => rfl, h.repr, h.ids_nodup, fun _ hi => Or.inl hi, rfl,
+    fun x hx => ⟨x, hx, rfl⟩⟩
+
+/-- `i` is in the subtree of an old child whose root is in `N`. -/
+def InClaimed (oldCh : List PNode) (N : List NodeId) (i : NodeId) : Prop :=
+  ∃ o ∈ oldCh, o.node ∈ N ∧ i ∈ o.ids
+
+theorem InClaimed.cons {oldCh : List PNode} {N : List NodeId} {i : NodeId} (a : NodeId)
+    (h : InClaimed oldCh N i) : InClaimed oldCh (a :: N) i :=
+  let ⟨o, ho, hN, hi⟩ := h; ⟨o, ho, List.mem_cons_of_mem _ hN, hi⟩
+
+theorem InClaimed.mem {oldCh : List PNode} {N : List NodeId} {i : NodeId}
+    (h : InClaimed oldCh N i) : i ∈ PNode.idsList oldCh :=
+  let ⟨_, ho, _, hi⟩ := h; PNode.mem_ids_of_mem ho hi
+
+/-- Invariant of the matching fold over the children of `elm`. `C` holds the
+roots of the old children claimed so far; `n0` bounds the old ids. -/
+structure MPre (oldCh : List PNode) (elm n0 : NodeId) (C : List NodeId)
+    (byKey : String → List PNode) (pos : Nat) (d : Dom) : Prop where
+  wf : HeapWF d
+  ids_nodup : (PNode.idsList oldCh).Nodup
+  ids_lt : ∀ i ∈ PNode.idsList oldCh, i < n0
+  elm_lt : elm < n0
+  elm_not : elm ∉ PNode.idsList oldCh
+  n0_le : n0 ≤ d.next
+  wf_old : ∀ o ∈ oldCh, o.toVNode.WF
+  avail : ∀ o ∈ oldCh, o.node ∉ C → Repr d o ∧ ∃ x, d.nodes o.node = some x ∧ x.parent = some elm
+  bykey : ∀ k, ∀ o ∈ byKey k, o ∈ oldCh ∧ o.key = some k ∧ o.node ∉ C
+  bykey_nodup : ∀ k, ((byKey k).map PNode.node).Nodup
+  unkeyed : ∀ i o, pos ≤ i → oldCh[i]? = some o → o.key = none → o.node ∉ C
+
+/-- What the fold returns. -/
+structure MPost (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat)
+    (vs : List VNode) (d : Dom) (pls : List Placement) (d' : Dom) : Prop where
+  wf : HeapWF d'
+  ok : d'.ok = d.ok
+  le : d.next ≤ d'.next
+  frame : ∀ i, i < d.next → ¬ InClaimed oldCh (pls.map (·.child.node)) i → d'.nodes i = d.nodes i
+  repr : ReprList d' (pls.map (·.child))
+  toV : PNode.toVNodes (pls.map (·.child)) = vs
+  ids_nodup : (PNode.idsList (pls.map (·.child))).Nodup
+  ids_range : ∀ i ∈ PNode.idsList (pls.map (·.child)),
+    InClaimed oldCh (pls.map (·.child.node)) i ∨ (d.next ≤ i ∧ i < d'.next)
+  roots : ∀ pl ∈ pls, (∃ o ∈ oldCh, o.node ∉ C ∧ pl.child.node = o.node) ∨
+    (d.next ≤ pl.child.node ∧ pl.child.node < d'.next)
+  roots_nodup : (pls.map (·.child.node)).Nodup
+  anch : ∀ (i : Nat) (c : NodeId), (pls.map Placement.toPair)[i]? = some (true, c) →
+    (oldCh.map PNode.node)[pos + i]? = some c
+  parent : ∀ pl ∈ pls, ∃ x, d'.nodes pl.child.node = some x ∧ (x.parent = none ∨ x.parent = some elm)
+
+/-- One step of the fold: `pl` either claims the old child `o`, or is new. -/
+structure Step (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat) (v : VNode)
+    (d : Dom) (pl : Placement) (d1 : Dom) (C' : List NodeId) : Prop where
+  ok : d1.ok = d.ok
+  le : d.next ≤ d1.next
+  repr : Repr d1 pl.child
+  ids_nodup : pl.child.ids.Nodup
+  toV : pl.child.toVNode = v
+  parent : ∃ x, d1.nodes pl.child.node = some x ∧ (x.parent = none ∨ x.parent = some elm)
+  kind : (∃ o ∈ oldCh, o.node ∉ C ∧ C' = o.node :: C ∧ pl.child.node = o.node ∧
+      (∀ i, i < d.next → i ∉ o.ids → d1.nodes i = d.nodes i) ∧
+      (∀ i ∈ pl.child.ids, i ∈ o.ids ∨ (d.next ≤ i ∧ i < d1.next)) ∧
+      (pl.toPair.1 = true → oldCh[pos]? = some o)) ∨
+    (C' = C ∧ pl.toPair.1 = false ∧ (∀ i, i < d.next → d1.nodes i = d.nodes i) ∧
+      (∀ i ∈ pl.child.ids, d.next ≤ i ∧ i < d1.next))
+
+/-! ### Small facts -/
+
+theorem PNode.ids_nodup_of_mem : ∀ {L : List PNode} {o : PNode}, o ∈ L → (PNode.idsList L).Nodup → o.ids.Nodup
+  | [], _, ho, _ => by cases ho
+  | a :: L, o, ho, hn => by
+    rw [PNode.idsList_cons, List.nodup_append] at hn
+    rcases List.mem_cons.1 ho with rfl | ho
+    · exact hn.1
+    · exact PNode.ids_nodup_of_mem ho hn.2.1
+
+theorem ReprList.mem : ∀ {d : Dom} {L : List PNode} {o : PNode}, ReprList d L → o ∈ L → Repr d o
+  | _, [], _, _, ho => by cases ho
+  | _, a :: L, o, h, ho => by
+    rcases List.mem_cons.1 ho with rfl | ho
+    · exact h.1
+    · exact ReprList.mem h.2 ho
+
+theorem WFs_mem : ∀ {L : List PNode} {o : PNode}, VNode.WFs (PNode.toVNodes L) → o ∈ L → o.toVNode.WF
+  | [], _, _, ho => by cases ho
+  | a :: L, o, h, ho => by
+    simp only [PNode.toVNodes, VNode.WFs] at h
+    rcases List.mem_cons.1 ho with rfl | ho
+    · exact h.1
+    · exact WFs_mem h.2 ho
+
+theorem MPre.ppre {oldCh elm n0 C byKey pos d} (h : MPre oldCh elm n0 C byKey pos d) {o : PNode}
+    (ho : o ∈ oldCh) (hoC : o.node ∉ C) : PPre d o :=
+  ⟨h.wf, (h.avail o ho hoC).1, PNode.ids_nodup_of_mem ho h.ids_nodup,
+    fun i hi => by have := h.ids_lt i (PNode.mem_ids_of_mem ho hi); have := h.n0_le; omega,
+    h.wf_old o ho⟩
+
+/-! ### Steps of the fold -/
+
+theorem step_claim {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKey pos d)
+    {o c : PNode} {d1 : Dom} {byKey' : String → List PNode} (pl : Placement)
+    (ho : o ∈ oldCh) (hoC : o.node ∉ C) (hP : Patched d o c d1) (htv : c.toVNode = v)
+    (hpl : pl.child = c) (hanch : pl.toPair.1 = true → oldCh[pos]? = some o)
+    (hbk : ∀ k, ∀ o' ∈ byKey' k, o' ∈ oldCh ∧ o'.key = some k ∧ o'.node ∉ o.node :: C)
+    (hbkn : ∀ k, ((byKey' k).map PNode.node).Nodup)
+    (hunk : ∀ i o', pos + 1 ≤ i → oldCh[i]? = some o' → o'.key = none → o'.node ≠ o.node) :
+    Step oldCh elm C pos v d pl d1 (o.node :: C) ∧ MPre oldCh elm n0 (o.node :: C) byKey' (pos + 1) d1 := by
+  subst hpl
+  obtain ⟨_, x, hx, hxp⟩ := h.avail o ho hoC
+  obtain ⟨x', hx', hxp'⟩ := hP.parent x hx
+  refine ⟨⟨hP.ok, hP.le, hP.repr, hP.ids_nodup, htv,
+    ⟨x', by rw [hP.node]; exact hx', Or.inr (hxp'.trans hxp)⟩,
+    Or.inl ⟨o, ho, hoC, rfl, hP.node, hP.frame, hP.ids_range, hanch⟩⟩, ?_⟩
+  have hle := hP.le; have hn0 := h.n0_le
+  refine ⟨hP.wf, h.ids_nodup, h.ids_lt, h.elm_lt, h.elm_not, by omega, h.wf_old, ?_, hbk, hbkn, ?_⟩
+  · intro o' ho' hC
+    simp only [List.mem_cons, not_or] at hC
+    obtain ⟨hr', y, hy, hyp⟩ := h.avail o' ho' hC.2
+    have hfr : ∀ i ∈ o'.ids, d1.nodes i = d.nodes i := fun i hi => hP.frame i
+      (by have := h.ids_lt i (PNode.mem_ids_of_mem ho' hi); omega)
+      (fun hio => hC.1 (by rw [PNode.ids_inj oldCh h.ids_nodup ho' ho hi hio]))
+    exact ⟨Repr.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
+      by rw [hfr _ (PNode.node_mem_ids o')]; exact hy, hyp⟩
+  · intro i o' hi ho' hk
+    simp only [List.mem_cons, not_or]
+    exact ⟨hunk i o' hi ho' hk, h.unkeyed i o' (by omega) ho' hk⟩
+
+theorem step_create {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKey pos d)
+    {c : PNode} {d1 : Dom} (hc : Created d c d1) (htv : c.toVNode = v) :
+    Step oldCh elm C pos v d (.movable c) d1 C ∧ MPre oldCh elm n0 C byKey (pos + 1) d1 := by
+  obtain ⟨x, hx, hxp⟩ := hc.detached
+  refine ⟨⟨hc.ok, hc.le, hc.repr, hc.ids_nodup, htv, ⟨x, hx, Or.inl hxp⟩,
+    Or.inr ⟨rfl, rfl, hc.frame, hc.ids_range⟩⟩, ?_⟩
+  have hle := hc.le; have hn0 := h.n0_le
+  refine ⟨hc.wf, h.ids_nodup, h.ids_lt, h.elm_lt, h.elm_not, by omega, h.wf_old, ?_, h.bykey,
+    h.bykey_nodup, ?_⟩
+  · intro o' ho' hC
+    obtain ⟨hr', y, hy, hyp⟩ := h.avail o' ho' hC
+    have hfr : ∀ i ∈ o'.ids, d1.nodes i = d.nodes i := fun i hi => hc.frame i
+      (by have := h.ids_lt i (PNode.mem_ids_of_mem ho' hi); omega)
+    exact ⟨Repr.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
+      by rw [hfr _ (PNode.node_mem_ids o')]; exact hy, hyp⟩
+  · intro i o' hi ho' hk; exact h.unkeyed i o' (by omega) ho' hk
+
+theorem matchOne_created (oldCh : List PNode) (byKey : String → List PNode) (pos : Nat) (v : VNode)
+    (pv : PNode → Dom → PNode × Dom) (d : Dom)
+    (hc : (v.key = none ∧ ∀ o, oldCh[pos]? = some o → sameVnode o v = false) ∨
+      ∃ k s, v.key = some k ∧ (byKey k).span (fun o => !sameVnode o v) = (s, [])) :
+    matchOne oldCh byKey pos v pv d = (.movable (createElm v d).1, byKey, (createElm v d).2) := by
+  unfold matchOne
+  rcases hc with ⟨hk, ho⟩ | ⟨k, s, hk, hs⟩
+  · simp only [hk]
+    cases hp : oldCh[pos]? with
+    | none => rfl
+    | some o => simp only [ho o hp, Bool.false_eq_true, ite_false]
+  · simp only [hk, hs]
+
+theorem matchOne_spec (oldCh : List PNode) (elm n0 : NodeId) (C : List NodeId)
+    (byKey : String → List PNode) (pos : Nat) (v : VNode) (pv : PNode → Dom → PNode × Dom) (d : Dom)
+    (h : MPre oldCh elm n0 C byKey pos d) (hv : v.WF)
+    (hpv : ∀ o ∈ oldCh, o.node ∉ C → sameVnode o v = true →
+      Patched d o (pv o d).1 (pv o d).2 ∧ (pv o d).1.toVNode = v) :
+    ∃ C', Step oldCh elm C pos v d (matchOne oldCh byKey pos v pv d).1
+        (matchOne oldCh byKey pos v pv d).2.2 C' ∧
+      MPre oldCh elm n0 C' (matchOne oldCh byKey pos v pv d).2.1 (pos + 1)
+        (matchOne oldCh byKey pos v pv d).2.2 := by
+  have created : ∀ (hc : (v.key = none ∧ ∀ o, oldCh[pos]? = some o → sameVnode o v = false) ∨
+      ∃ k s, v.key = some k ∧ (byKey k).span (fun o => !sameVnode o v) = (s, [])),
+      ∃ C', Step oldCh elm C pos v d (matchOne oldCh byKey pos v pv d).1
+        (matchOne oldCh byKey pos v pv d).2.2 C' ∧
+      MPre oldCh elm n0 C' (matchOne oldCh byKey pos v pv d).2.1 (pos + 1)
+        (matchOne oldCh byKey pos v pv d).2.2 := by
+    intro hc
+    rw [matchOne_created oldCh byKey pos v pv d hc]
+    obtain ⟨cc, ctv⟩ := createElm_spec v d h.wf hv
+    exact ⟨C, step_create h cc ctv⟩
+  have hO := PNode.roots_nodup oldCh h.ids_nodup
+  cases hk : v.key with
+  | none =>
+    cases hp : oldCh[pos]? with
+    | none => exact created (Or.inl ⟨hk, fun o ho => by rw [hp] at ho; cases ho⟩)
+    | some o =>
+      cases hs : sameVnode o v with
+      | false => exact created (Or.inl ⟨hk, fun o' ho' => by rw [hp] at ho'; cases ho'; exact hs⟩)
+      | true =>
+        have ho : o ∈ oldCh := List.mem_of_getElem? hp
+        have hoC : o.node ∉ C := h.unkeyed pos o (Nat.le_refl _) hp (by rw [sameVnode_key o v hs, hk])
+        have hokey : o.key = none := by rw [sameVnode_key o v hs, hk]
+        obtain ⟨hP, htv⟩ := hpv o ho hoC hs
+        have he : matchOne oldCh byKey pos v pv d = (.anchored (pv o d).1, byKey, (pv o d).2) := by
+          unfold matchOne; simp only [hk, hp, hs, ite_true]
+        rw [he]
+        refine ⟨_, step_claim h (.anchored (pv o d).1) ho hoC hP htv rfl (fun _ => hp) ?_
+          h.bykey_nodup ?_⟩
+        · intro k o' ho'
+          obtain ⟨h1, h2, h3⟩ := h.bykey k o' ho'
+          refine ⟨h1, h2, ?_⟩
+          simp only [List.mem_cons, not_or]
+          refine ⟨fun e => ?_, h3⟩
+          rw [PNode.node_inj h.ids_nodup h1 ho e, hokey] at h2; cases h2
+        · intro i o' hi ho' _ e
+          have hi1 : (oldCh.map PNode.node)[i]? = some o.node := by simp [List.getElem?_map, ho', e]
+          have hi2 : (oldCh.map PNode.node)[pos]? = some o.node := by simp [List.getElem?_map, hp]
+          have := idx_inj _ i pos _ hO hi1 hi2; omega
+  | some k =>
+    rcases hsp : (byKey k).span (fun o => !sameVnode o v) with ⟨s, _ | ⟨o, rest⟩⟩
+    · exact created (Or.inr ⟨k, s, hk, hsp⟩)
+    · obtain ⟨hsplit, hso⟩ := span_cons _ _ _ _ _ hsp
+      have hs : sameVnode o v = true := by simpa using hso
+      have hob : o ∈ byKey k := by rw [hsplit]; simp
+      obtain ⟨ho, hokey, hoC⟩ := h.bykey k o hob
+      obtain ⟨hP, htv⟩ := hpv o ho hoC hs
+      have he : matchOne oldCh byKey pos v pv d =
+          (.movable (pv o d).1, fun j => if j = k then s ++ rest else byKey j, (pv o d).2) := by
+        unfold matchOne; simp only [hk, hsp]
+      rw [he]
+      have hnk := h.bykey_nodup k
+      rw [hsplit, List.map_append, List.map_cons, List.nodup_append, List.nodup_cons] at hnk
+      refine ⟨_, step_claim h (.movable (pv o d).1) ho hoC hP htv rfl
+        (fun e => absurd e (by simp [Placement.toPair])) ?_ ?_ ?_⟩
+      · intro j o' ho'
+        by_cases hj : j = k
+        · subst hj
+          simp only [ite_true] at ho'
+          have hob' : o' ∈ byKey j := by
+            rw [hsplit]; rcases List.mem_append.1 ho' with h' | h' <;> simp [h']
+          obtain ⟨h1, h2, h3⟩ := h.bykey j o' hob'
+          refine ⟨h1, h2, ?_⟩
+          simp only [List.mem_cons, not_or]
+          refine ⟨fun e => ?_, h3⟩
+          rcases List.mem_append.1 ho' with ho' | ho'
+          · exact hnk.2.2 _ (List.mem_map_of_mem ho') _ List.mem_cons_self e
+          · exact hnk.2.1.1 (e ▸ List.mem_map_of_mem ho')
+        · simp only [hj, ite_false] at ho'
+          obtain ⟨h1, h2, h3⟩ := h.bykey j o' ho'
+          refine ⟨h1, h2, ?_⟩
+          simp only [List.mem_cons, not_or]
+          refine ⟨fun e => hj ?_, h3⟩
+          rw [PNode.node_inj h.ids_nodup h1 ho e, hokey] at h2
+          cases h2; rfl
+      · intro j
+        by_cases hj : j = k
+        · subst hj; simp only [ite_true]
+          rw [List.map_append, List.nodup_append]
+          exact ⟨hnk.1, hnk.2.1.2, fun a ha b hb => hnk.2.2 a ha b (List.mem_cons_of_mem _ hb)⟩
+        · simp only [hj, ite_false]; exact h.bykey_nodup j
+      · intro i o' _ ho' hk' e
+        have := PNode.node_inj h.ids_nodup (List.mem_of_getElem? ho') ho e
+        rw [this, hokey] at hk'; cases hk'
+
+/-! ### Folding steps together -/
+
+theorem mpost_nil {oldCh elm C pos d} (hw : HeapWF d) : MPost oldCh elm C pos [] d [] d :=
+  ⟨hw, rfl, Nat.le_refl _, fun _ _ _ => rfl, trivial, rfl, by simp [PNode.idsList],
+    by simp [PNode.idsList], by simp, by simp, by simp, by simp⟩
+
+theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
+    (h : MPre oldCh elm n0 C byKey pos d) (hs : Step oldCh elm C pos v d pl d1 C')
+    (hr : MPost oldCh elm C' (pos + 1) vs d1 pls d2) :
+    MPost oldCh elm C pos (v :: vs) d (pl :: pls) d2 := by
+  have hlt := h.ids_lt; have hn0 := h.n0_le; have le1 := hs.le; have le2 := hr.le
+  have nc : ∀ N i, n0 ≤ i → ¬ InClaimed oldCh N i := fun N i hi ⟨o, ho, _, hio⟩ => by
+    have := hlt i (PNode.mem_ids_of_mem ho hio); omega
+  -- the head's ids are below `d1.next` and not claimed by the tail
+  have hfree : ∀ i ∈ pl.child.ids, i < d1.next ∧ ¬ InClaimed oldCh (pls.map (·.child.node)) i := by
+    intro i hi
+    rcases hs.kind with ⟨o, ho, _, hC', _, _, hrg, _⟩ | ⟨_, _, _, hrg⟩
+    · rcases hrg i hi with hio | hio
+      · have hi0 := hlt i (PNode.mem_ids_of_mem ho hio)
+        refine ⟨by omega, fun ⟨o', ho', hN, hio'⟩ => ?_⟩
+        have e := PNode.ids_inj oldCh h.ids_nodup ho' ho hio' hio
+        rw [e] at hN
+        obtain ⟨pl', hpl', hpe⟩ := List.mem_map.1 hN
+        rcases hr.roots pl' hpl' with ⟨o'', _, hoC'', he''⟩ | ⟨hf, _⟩
+        · apply hoC''; rw [hC', ← he'', hpe]; exact List.mem_cons_self
+        · have := hlt _ (PNode.mem_ids_of_mem ho (PNode.node_mem_ids o)); rw [hpe] at hf; omega
+      · exact ⟨hio.2, nc _ i (by omega)⟩
+    · have := hrg i hi; exact ⟨this.2, nc _ i (by omega)⟩
+  refine ⟨hr.wf, by rw [hr.ok, hs.ok], by omega, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro i hi hnc
+    have hnc' : ¬ InClaimed oldCh (pls.map (·.child.node)) i := fun hc => hnc (hc.cons _)
+    rw [hr.frame i (by omega) hnc']
+    rcases hs.kind with ⟨o, ho, _, _, hnode, hfr, _, _⟩ | ⟨_, _, hfr, _⟩
+    · exact hfr i hi (fun hio => hnc ⟨o, ho, by simp [hnode], hio⟩)
+    · exact hfr i hi
+  · exact ⟨Repr.frame _ hs.repr (fun i hi => SameContent.of_eq (hr.frame i (hfree i hi).1 (hfree i hi).2)),
+      hr.repr⟩
+  · simp only [List.map_cons, PNode.toVNodes, hs.toV, hr.toV]
+  · simp only [List.map_cons]
+    rw [PNode.idsList_cons, List.nodup_append]
+    refine ⟨hs.ids_nodup, hr.ids_nodup, fun a ha b hb e => ?_⟩
+    subst e
+    rcases hr.ids_range a hb with hc | hc
+    · exact (hfree a ha).2 hc
+    · have := (hfree a ha).1; omega
+  · intro i hi
+    simp only [List.map_cons] at hi
+    rw [PNode.idsList_cons, List.mem_append] at hi
+    rcases hi with hi | hi
+    · rcases hs.kind with ⟨o, ho, _, _, hnode, _, hrg, _⟩ | ⟨_, _, _, hrg⟩
+      · rcases hrg i hi with hio | hio
+        · exact Or.inl ⟨o, ho, by simp [hnode], hio⟩
+        · exact Or.inr ⟨hio.1, by omega⟩
+      · have := hrg i hi; exact Or.inr ⟨this.1, by omega⟩
+    · rcases hr.ids_range i hi with hc | hc
+      · exact Or.inl (hc.cons _)
+      · exact Or.inr ⟨by omega, hc.2⟩
+  · intro pl' hpl'
+    rcases List.mem_cons.1 hpl' with rfl | hpl'
+    · rcases hs.kind with ⟨o, ho, hoC, _, hnode, _⟩ | ⟨_, _, _, hrg⟩
+      · exact Or.inl ⟨o, ho, hoC, hnode⟩
+      · have := hrg _ (PNode.node_mem_ids _); exact Or.inr ⟨this.1, by omega⟩
+    · rcases hr.roots pl' hpl' with ⟨o, ho, hoC, hnode⟩ | hf
+      · refine Or.inl ⟨o, ho, fun hc => hoC ?_, hnode⟩
+        rcases hs.kind with ⟨_, _, _, hC', _⟩ | ⟨hC', _⟩
+        · rw [hC']; exact List.mem_cons_of_mem _ hc
+        · rw [hC']; exact hc
+      · exact Or.inr ⟨by omega, hf.2⟩
+  · simp only [List.map_cons, List.nodup_cons]
+    refine ⟨fun hm => ?_, hr.roots_nodup⟩
+    obtain ⟨pl', hpl', hpe⟩ := List.mem_map.1 hm
+    rcases hs.kind with ⟨o, ho, _, _, hnode, _⟩ | ⟨_, _, _, hrg⟩
+    · exact (hfree _ (PNode.node_mem_ids _)).2 ⟨o, ho,
+        List.mem_map.2 ⟨pl', hpl', by rw [hpe, hnode]⟩, by rw [hnode]; exact PNode.node_mem_ids _⟩
+    · have hp := hrg _ (PNode.node_mem_ids _)
+      rcases hr.roots pl' hpl' with ⟨o, ho, _, hnode⟩ | hf
+      · have := hlt _ (PNode.mem_ids_of_mem ho (PNode.node_mem_ids o))
+        rw [← hnode, hpe] at this; omega
+      · rw [hpe] at hf; omega
+  · intro i c hi
+    cases i with
+    | zero =>
+      simp only [List.map_cons, List.getElem?_cons_zero, Option.some.injEq] at hi
+      rcases hs.kind with ⟨o, _, _, _, hnode, _, _, ha⟩ | ⟨_, hf, _⟩
+      · have e1 := ha (by rw [hi])
+        have e2 : c = o.node := by rw [← hnode, ← Placement.toPair_snd pl, hi]
+        rw [List.getElem?_map, Nat.add_zero, e1, e2]; rfl
+      · rw [hi] at hf; cases hf
+    | succ i =>
+      simp only [List.map_cons, List.getElem?_cons_succ] at hi
+      have := hr.anch i c hi
+      rwa [show pos + 1 + i = pos + (i + 1) by omega] at this
+  · intro pl' hpl'
+    rcases List.mem_cons.1 hpl' with rfl | hpl'
+    · obtain ⟨x, hx, hxp⟩ := hs.parent
+      have hf := hfree _ (PNode.node_mem_ids _)
+      exact ⟨x, by rw [hr.frame _ hf.1 hf.2]; exact hx, hxp⟩
+    · exact hr.parent pl' hpl'
+
+/-! ### After the fold: place, then remove what was not reused -/
+
+theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List PNode} {vs : List VNode}
+    {pls : List Placement} {d1 d2 : Dom} {ex1 : DomNode}
+    (h : MPre oldCh elm d1.next [] byKey 0 d1) (hp : MPost oldCh elm [] 0 vs d1 pls d2)
+    (he1 : d1.nodes elm = some ex1) (hch : ex1.children = oldCh.map PNode.node) :
+    HeapWF (finishChildren elm oldCh pls d2).2 ∧ (finishChildren elm oldCh pls d2).2.ok = d1.ok ∧
+    (finishChildren elm oldCh pls d2).2.next = d2.next ∧
+    (finishChildren elm oldCh pls d2).1 = pls.map (·.child) ∧
+    (finishChildren elm oldCh pls d2).2.nodes elm = some { ex1 with children := pls.map (·.child.node) } ∧
+    (∀ i, i < d1.next → i ∉ PNode.idsList oldCh → i ≠ elm →
+      (finishChildren elm oldCh pls d2).2.nodes i = d1.nodes i) ∧
+    ReprList (finishChildren elm oldCh pls d2).2 (pls.map (·.child)) := by
+  have hel := h.elm_lt; have helm := h.elm_not
+  have nc : ∀ N i, i ∉ PNode.idsList oldCh → ¬ InClaimed oldCh N i := fun _ _ hi hc => hi hc.mem
+  have he2 : d2.nodes elm = some ex1 := by rw [hp.frame elm hel (nc _ _ helm)]; exact he1
+  have hcur : oldCh.head?.map PNode.node = none ∨
+      ∃ o, oldCh.head?.map PNode.node = some o ∧ o ∈ ex1.children := by
+    cases oldCh with
+    | nil => exact Or.inl rfl
+    | cons o os => exact Or.inr ⟨o.node, rfl, by rw [hch]; exact List.mem_cons_self⟩
+  have hroot : ∀ pl ∈ pls, pl.child.node ∈ PNode.idsList oldCh ∨ d1.next ≤ pl.child.node := by
+    intro pl hpl
+    rcases hp.roots pl hpl with ⟨o, ho, _, he⟩ | hf
+    · exact Or.inl (he ▸ PNode.mem_ids_of_mem ho (PNode.node_mem_ids o))
+    · exact Or.inr hf.1
+  have hpls : ∀ pl ∈ pls, pl.child.node ≠ elm ∧ ∃ x, d2.nodes pl.child.node = some x ∧
+      (x.parent = none ∨ x.parent = some elm) := by
+    intro pl hpl
+    refine ⟨fun e => ?_, hp.parent pl hpl⟩
+    rcases hroot pl hpl with h1 | h1
+    · exact helm (e ▸ h1)
+    · omega
+  obtain ⟨w3, ok3, nx3, ne3, sc3, fr3⟩ :=
+    place_spec elm (pls.map (·.child.node)) pls _ d2 ex1 hp.wf he2 hcur hp.roots_nodup hpls
+  rw [hch] at ne3
+  have hO := PNode.roots_nodup oldCh h.ids_nodup
+  have hRP : (pls.map Placement.toPair).map (·.2) = pls.map (·.child.node) := toPairs_snd pls
+  have hcorr := placeL_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
+    (by rw [hRP]; exact hp.roots_nodup)
+    (fun i c hi => by have := hp.anch i c hi; rwa [Nat.zero_add] at this)
+  rw [hRP, List.head?_map] at hcorr
+  unfold finishChildren
+  dsimp only
+  generalize hR : pls.map (·.child.node) = R at *
+  generalize hd3 : place elm R pls (oldCh.head?.map PNode.node) d2 = d3 at *
+  generalize hL : placeL R (pls.map Placement.toPair) (oldCh.head?.map PNode.node)
+    (oldCh.map PNode.node) = L' at *
+  have hU : ∀ u ∈ oldCh.filter (fun o => decide (o.node ∉ R)),
+      u.node ∈ { ex1 with children := L' }.children ∧ u.node ≠ elm := by
+    intro u hu
+    obtain ⟨hu1, hu2⟩ := List.mem_filter.1 hu
+    simp only [decide_eq_true_eq] at hu2
+    refine ⟨?_, fun e => helm (e ▸ PNode.mem_ids_of_mem hu1 (PNode.node_mem_ids u))⟩
+    rw [← hL]
+    exact placeL_keep R _ _ _ _ (List.mem_map_of_mem hu1) (by rw [hRP]; exact hu2)
+  have hUnd : ((oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node).Nodup :=
+    List.Nodup.sublist (List.filter_sublist.map PNode.node) hO
+  obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := removeAll_spec elm _ d3 _ w3 ne3 hUnd hU
+  have hfilt : L'.filter (fun x => decide (x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node)) = R := by
+    refine Eq.trans ?_ hcorr.1
+    unfold fR
+    apply List.filter_congr
+    intro x hx
+    by_cases hxR : x ∈ R
+    · have : x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node := by
+        intro hm; obtain ⟨u, hu, rfl⟩ := List.mem_map.1 hm
+        exact (by simpa using (List.mem_filter.1 hu).2 : u.node ∉ R) hxR
+      rw [decide_eq_true this, decide_eq_true hxR]
+    · have hxO : x ∈ oldCh.map PNode.node := by
+        rw [← hL] at hx
+        rcases placeL_sub R _ _ _ x hx with h1 | h1
+        · exact h1
+        · rw [hRP] at h1; exact absurd h1 hxR
+      obtain ⟨o, ho, rfl⟩ := List.mem_map.1 hxO
+      have : o.node ∈ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node :=
+        List.mem_map_of_mem (List.mem_filter.2 ⟨ho, by simpa using hxR⟩)
+      rw [decide_eq_false (fun hn => hn this), decide_eq_false hxR]
+  have hne : ∀ i ∈ PNode.idsList (pls.map (·.child)), i ≠ elm := by
+    intro i hi e; subst e
+    rcases hp.ids_range _ hi with hc | hc
+    · exact helm hc.mem
+    · omega
+  refine ⟨w4, by rw [ok4, ok3, hp.ok], by rw [nx4, nx3], rfl, ?_, ?_, ?_⟩
+  · rw [ne4, hfilt]
+  · intro i hi hio hie
+    have hiU : i ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node := by
+      intro hm; obtain ⟨u, hu, rfl⟩ := List.mem_map.1 hm
+      exact hio (PNode.mem_ids_of_mem (List.mem_filter.1 hu).1 (PNode.node_mem_ids u))
+    have hiR : i ∉ pls.map (·.child.node) := by
+      intro hm; obtain ⟨pl, hpl, rfl⟩ := List.mem_map.1 hm
+      rcases hroot pl hpl with h1 | h1
+      · exact hio h1
+      · omega
+    rw [hR] at hiR
+    rw [fr4 i hie hiU, fr3 i hie hiR, hp.frame i hi (nc _ _ hio)]
+  · exact ReprList.frame _ hp.repr (fun i hi => (sc3 i (hne i hi)).trans (sc4 i (hne i hi)))
+
+end Snabbdom
