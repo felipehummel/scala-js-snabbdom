@@ -53,12 +53,12 @@ element is lost.
 
 ## Usage
 
-Artifacts are not published yet. CI publishes only from `v*` tags, and
-publishing credentials are not configured. Until then, build it locally with
-`sbt publishLocal` and depend on the version it prints:
+Artifacts are not published to Maven Central. CI publishes only from `v*` tags,
+and publishing credentials are not configured. Build a release locally with
+`sbt 'set ThisBuild / version := "<version>"' publishLocal` and depend on it:
 
 ```scala
-libraryDependencies += "io.github.buntec" %%% "scala-js-snabbdom" % "<version>"
+libraryDependencies += "io.github.felipehummel" %%% "scala-js-snabbdom" % "<version>"
 ```
 
 See the test suites for usage examples.
