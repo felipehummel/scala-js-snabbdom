@@ -18,6 +18,8 @@ package snabbdom
 
 import org.scalajs.dom
 
+import scala.language.implicitConversions
+
 class EventHandler(
     val cbs: Seq[(dom.Event, VNode) => Unit]
 )
