@@ -1,0 +1,15 @@
+{
+  "name": "js-framework-benchmark-scala-js-snabbdom",
+  "version": "1.0.0",
+  "description": "scala-js-snabbdom (felipehummel fork) keyed demo",
+  "private": true,
+  "js-framework-benchmark": {
+    "frameworkVersion": "0.2-fork",
+    "frameworkHomeURL": "https://github.com/felipehummel/scala-js-snabbdom",
+    "language": "Scala"
+  },
+  "scripts": {
+    "build-prod": "test -f dist/main.js || (echo 'dist/main.js is built by run.sh in the scala-js-snabbdom repo' && exit 1)"
+  },
+  "license": "Apache-2.0"
+}

@@ -50,7 +50,12 @@ lazy val scalajsDomVersion = "2.8.0"
 lazy val scalacheckVersion = "1.17.0"
 lazy val munitVersion = "1.0.0-M11"
 
-lazy val root = tlCrossRootProject.aggregate(snabbdom, examples, benchmarks)
+lazy val root = tlCrossRootProject.aggregate(
+  snabbdom,
+  examples,
+  benchmarks,
+  jsFrameworkBenchmark
+)
 
 lazy val snabbdom = (project
   .in(file("snabbdom")))
@@ -89,5 +94,16 @@ lazy val benchmarks = (project
   .settings(
     name := "scala-js-snabbdom-benchmarks",
     scalaJSUseMainModuleInitializer := false
+  )
+  .dependsOn(snabbdom)
+
+// The keyed entry for krausest/js-framework-benchmark.
+// See benchmarks/js-framework-benchmark/README.md.
+lazy val jsFrameworkBenchmark = (project
+  .in(file("benchmarks/js-framework-benchmark/scala")))
+  .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
+  .settings(
+    name := "scala-js-snabbdom-js-framework-benchmark",
+    scalaJSUseMainModuleInitializer := true
   )
   .dependsOn(snabbdom)

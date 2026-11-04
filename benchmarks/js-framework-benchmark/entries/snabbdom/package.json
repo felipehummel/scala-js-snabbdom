@@ -1,0 +1,21 @@
+{
+  "name": "js-framework-benchmark-snabbdom",
+  "version": "1.0.0",
+  "description": "Snabbdom (JavaScript) keyed demo, mirroring the scala-js-snabbdom entry",
+  "private": true,
+  "js-framework-benchmark": {
+    "frameworkVersionFromPackage": "snabbdom",
+    "frameworkHomeURL": "https://github.com/snabbdom/snabbdom",
+    "language": "JavaScript"
+  },
+  "scripts": {
+    "build-prod": "esbuild src/main.js --bundle --minify --format=iife --target=es2020 --outfile=dist/main.js"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "snabbdom": "3.6.4"
+  }
+}
