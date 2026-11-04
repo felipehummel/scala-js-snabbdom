@@ -38,6 +38,8 @@
 
 package snabbdom
 
+import scala.language.implicitConversions
+
 sealed trait VNode
 
 object VNode {

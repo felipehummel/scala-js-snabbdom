@@ -1,26 +1,60 @@
 # scala-js-snabbdom
 
-![Maven Central](https://img.shields.io/maven-central/v/io.github.buntec/scala-js-snabbdom_sjs1_2.13)
+A fork of [buntec/scala-js-snabbdom](https://github.com/buntec/scala-js-snabbdom),
+the Scala.js port of the [Snabbdom](https://github.com/snabbdom/snabbdom)
+virtual DOM written by Christoph Bunte. The upstream 0.2.x line (immutable
+vnodes, roughly Snabbdom 3.4.0) is the starting point.
 
-This project started as a Scala.js clone of [Snabbdom](https://github.com/snabbdom/snabbdom)
-(roughly equivalent to version 3.4.0). Version 0.1.x stays close to the original,
-while 0.2.x departs from it in several ways, notably by making many things immutable.
-We are happy to fix bugs in the 0.1.x line within reason.
+## Why this fork exists
 
-Artifacts are published to Maven Central for Scala 2.13 and Scala 3.
+Upstream is no longer maintained: its last release is 0.2.0-M3 (2022).
+
+Its 0.2.x child reconciliation matched unkeyed children greedily, comparing each
+new child with the next old child of the same tag. One tag change in a sibling
+list could cascade: later siblings were patched into the wrong DOM elements,
+recreated, or moved with `insertBefore`.
 
 ```scala
-libraryDependencies += "io.github.buntec" %%% "scala-js-snabbdom" % "x.y.z"
+// before
+h("div", List(h("div"), h("div", List(h("my-card"))), h("div")))
+// after: only the first child changed from div to p
+h("div", List(h("p"), h("div", List(h("my-card"))), h("div")))
+```
+
+Upstream creates the `p`, reuses the first old `div` for the card's wrapper and
+the card's old wrapper for the last `div`. The original `<my-card>` is removed
+and a new one is created.
+
+Recreating or moving a node disconnects it. Custom elements receive
+`disconnectedCallback`, a focused input loses focus, and any work owned by the
+element is lost.
+
+## What is different
+
+- **Unkeyed children reconcile by position**, as in React and Elm. An unkeyed
+  child is matched with the old child at the same index when both are the same
+  kind of node (same tag, key and `is`). A mismatch replaces only that node.
+  Unkeyed nodes are never moved.
+- **Keyed children match by key.** Siblings that share a key are each matched
+  at most once. A keyed node is moved only when the new order requires it, never
+  when it is already in place. Keyed reordering is not move-minimal.
+- **Unmatched comment nodes are removed.** Upstream left them in the DOM.
+- **Scala 3 only.** Scala 2.13 is no longer built. CI runs on current GitHub
+  Actions with headless Chrome and Firefox.
+
+## Usage
+
+Artifacts are not published yet. CI publishes only from `v*` tags, and
+publishing credentials are not configured. Until then, build it locally with
+`sbt publishLocal` and depend on the version it prints:
+
+```scala
+libraryDependencies += "io.github.buntec" %%% "scala-js-snabbdom" % "<version>"
 ```
 
 See the test suites for usage examples.
 
-## Projects using scala-js-snabbdom
+## License
 
-- [tyrian](https://github.com/PurpleKingdomGames/tyrian)
-- [ff4s](https://github.com/buntec/ff4s)
-- Your library here...
-
-## Contributing
-
-Don't hesitate to open issues or pull requests!
+Apache License 2.0, see [LICENSE](LICENSE). Code derived from Snabbdom keeps
+its MIT notice (Copyright (c) 2015 Simon Friis Vindum) in the source headers.
