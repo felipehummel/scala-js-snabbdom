@@ -24,7 +24,10 @@ ThisBuild / githubWorkflowBuild +=
   WorkflowStep.Sbt(
     List("bundleMon"),
     name = Some("Monitor artifact size"),
-    cond = Some("matrix.project == 'rootJS' && matrix.browser == 'Chrome'")
+    // The BundleMon GitHub App is installed only on the upstream repository.
+    cond = Some(
+      "matrix.project == 'rootJS' && matrix.browser == 'Chrome' && github.event.repository.fork == false"
+    )
   )
 
 ThisBuild / githubWorkflowAddedJobs +=
