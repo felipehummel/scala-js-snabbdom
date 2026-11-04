@@ -7,6 +7,8 @@ ThisBuild / organization := "io.github.buntec"
 ThisBuild / organizationName := "buntec"
 ThisBuild / startYear := Some(2022)
 ThisBuild / tlSonatypeUseLegacyHost := false
+// The fork has no Sonatype or PGP secrets, so CI publishes only from tags.
+ThisBuild / tlCiReleaseBranches := Seq.empty
 
 ThisBuild / developers := List(
   tlGitHubDev("buntec", "Christoph Bunte"),
@@ -22,7 +24,10 @@ ThisBuild / githubWorkflowBuild +=
   WorkflowStep.Sbt(
     List("bundleMon"),
     name = Some("Monitor artifact size"),
-    cond = Some("matrix.project == 'rootJS' && matrix.browser == 'Chrome'")
+    // The BundleMon GitHub App is installed only on the upstream repository.
+    cond = Some(
+      "matrix.project == 'rootJS' && matrix.browser == 'Chrome' && github.event.repository.fork == false"
+    )
   )
 
 ThisBuild / githubWorkflowAddedJobs +=
