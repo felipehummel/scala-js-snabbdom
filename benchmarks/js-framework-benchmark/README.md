@@ -36,66 +36,53 @@ fails to load the build there.
 ## Results, 2026-11-04
 
 Headless Chrome on an Apple M5 Pro, benchmark commit `fa510a7`, React 19.2.0,
-Snabbdom 3.6.4. Medians of 15 runs (25 for select) in milliseconds, click to
-end of paint. Some benchmarks throttle the CPU, the same way for all three.
+Snabbdom 3.6.4. All three entries ran in the same run, so they shared the
+machine's load (load average 17 to 35 during the run; absolute times are high,
+the ratios are what to read). Times are in milliseconds, click to end of
+paint: median, then the interquartile range and the run count. Some benchmarks
+throttle the CPU, the same way for all three. Memory, bundle size and first
+paint are single runs.
 
-"Fork before" is the fork before the patching work described below, measured
-in the same run as React and Snabbdom JS.
+| Benchmark | React | Snabbdom JS | fork | fork / React |
+| --- | ---: | ---: | ---: | ---: |
+| create 1,000 rows | 47.4 (43.8–56.4, n=15) | 48.5 (41.5–54.0, n=15) | 66.1 (56.2–73.0, n=15) | 1.39 |
+| replace all rows | 58.2 (53.6–65.8, n=15) | 62.8 (58.4–67.3, n=15) | 76.7 (67.3–81.7, n=15) | 1.32 |
+| update every 10th row | 51.6 (49.9–58.0, n=15) | 46.8 (42.1–50.1, n=15) | 72.0 (71.3–77.6, n=15) | 1.40 |
+| select row | 21.0 (20.1–21.6, n=25) | 18.7 (17.4–21.5, n=25) | 24.2 (22.6–25.6, n=25) | 1.15 |
+| swap rows | 251.2 (244.8–323.6, n=15) | 47.0 (44.6–51.0, n=15) | 59.4 (56.7–67.7, n=15) | 0.24 |
+| remove row | 35.6 (34.2–36.3, n=15) | 33.3 (30.9–34.0, n=15) | 37.0 (36.0–39.3, n=15) | 1.04 |
+| create 10,000 rows | 770.8 (747.8–815.1, n=15) | 690.4 (606.5–734.2, n=15) | 591.2 (554.0–674.4, n=15) | 0.77 |
+| append 1,000 rows | 64.2 (57.2–66.2, n=15) | 63.5 (59.8–65.7, n=15) | 88.1 (83.8–92.1, n=15) | 1.37 |
+| clear rows | 44.1 (41.1–46.5, n=15) | 47.2 (36.1–55.0, n=15) | 34.0 (32.8–35.5, n=15) | 0.77 |
+| memory, ready (MB) | 1.1 | 0.6 | 1.4 | 1.25 |
+| memory, 1,000 rows (MB) | 4.4 | 2.9 | 4.8 | 1.08 |
+| memory, 1,000 rows cleared (MB) | 2.0 | 0.8 | 1.8 | 0.92 |
+| bundle, compressed (KB) | 51.4 | 4.4 | 46.1 | 0.90 |
+| first paint | 621.1 | 96.9 | 464.1 | 0.75 |
 
-| Benchmark                | React | Snabbdom JS | fork before |
-| ------------------------ | ----: | ----------: | ----------: |
-| create 1,000 rows        |  43.9 |        41.7 |        55.1 |
-| replace all rows         |  54.9 |        46.8 |        75.5 |
-| update every 10th row    |  41.0 |        35.9 |       147.5 |
-| select row               |  17.6 |        11.7 |       133.9 |
-| swap rows                | 149.4 |        38.7 |       227.6 |
-| remove row               |  18.5 |        22.1 |        66.6 |
-| create 10,000 rows       | 489.9 |       293.8 |       434.7 |
-| append 1,000 rows        |  37.3 |        54.6 |        85.1 |
-| clear rows               |  26.5 |        29.0 |        38.0 |
-| bundle, compressed (KB)  |  51.4 |         4.4 |        50.8 |
-| first paint              | 369.1 |        58.8 |       480.3 |
-| memory after 1k rows (MB)|   4.4 |         2.9 |         4.5 |
+Every case is within 2x of React in this run; the slowest are create, update
+and append, at about 1.4x. They were not profiled again after the last change.
 
-### After the patching work
+Before the patching work, measured the same way in an earlier, quieter run,
+the fork was 3.6x React on update every 10th row, 7.6x on select, 3.6x on
+remove row and 2.3x on append.
 
-The fork was measured again in a later run, with Snabbdom JS in the same run as
-a control. The machine was busier then (load average about 24), so every time
-came out higher. "Adjusted" divides the fork's time by how much slower
-Snabbdom JS got between the two runs, then compares it with React.
-
-| Benchmark             | fork now | Snabbdom JS now | fork / JS now | adjusted / React |
-| --------------------- | -------: | --------------: | ------------: | ---------------: |
-| create 1,000 rows     |     71.2 |            53.6 |          1.33 |             1.26 |
-| replace all rows      |     78.1 |            67.0 |          1.17 |             0.99 |
-| update every 10th row |     75.5 |            47.6 |          1.59 |             1.39 |
-| select row            |     33.5 |            23.5 |          1.43 |             0.95 |
-| swap rows             |     77.2 |            60.0 |          1.29 |             0.33 |
-| remove row            |     47.0 |            41.2 |          1.14 |             1.36 |
-| create 10,000 rows    |    630.6 |           585.8 |          1.08 |             0.65 |
-| append 1,000 rows     |     80.7 |            76.7 |          1.05 |             1.54 |
-| clear rows            |     29.7 |            37.5 |          0.79 |             0.87 |
-
-Bundle (45.9 KB compressed), first paint and memory stayed within 1.2× of
-React. Repeat the run on an idle machine before quoting absolute numbers.
-
-What the profiles showed and what changed:
+What changed:
 
 - Every `patchVnode` converted the old subtree back to a `VNode` and compared
   it with the new one, at each level, so an update that touched two rows still
-  walked and allocated the whole table. A patched node now remembers the
-  `VNode` it came from, and patching with that same instance (an unchanged
-  thunk returns it) is skipped by a reference check.
+  walked and allocated the whole table. A patched element now keeps the
+  `VNode` it was built from whenever that `VNode` equals the conversion, so an
+  unchanged thunk (which answers with that `VNode`) is skipped by a reference
+  check, and an equal rebuilt subtree by a comparison that allocates nothing.
 - Keyed children were placed with a forward scan that moved 997 nodes to swap
   two rows. They are now placed around the longest increasing run of old
   positions, so a swap moves two nodes.
 - Event listeners were removed and added again on every patch. The element now
   keeps one listener that dispatches to its current vnode.
-- Removing every child clears the parent in one step when no remove hook can
-  delay it, and appending to an unchanged list creates and appends without
-  matching.
+- Appending to an unchanged list creates and appends without matching.
 - Smaller allocation cuts in the create path: no closure for empty modules,
-  no regex or `split` to build the class attribute, no substring in `h`.
+  no regex to build the class attribute.
 
 All of the mutable state is private to the library: `PatchedVNode` and the
 public API are unchanged for callers.
