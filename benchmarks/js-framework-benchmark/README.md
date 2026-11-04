@@ -16,8 +16,7 @@ the end of the paint, using Chrome traces.
 
 All three are keyed. The two Snabbdom apps mirror each other line for line and
 render each row as a `thunk`, the counterpart of the `memo` rows in
-`react-hooks`. A row thunk must put the row's key in the vnode its function
-returns as well, because the Scala.js thunk copies its data from that vnode.
+`react-hooks`.
 
 ## Running
 

@@ -78,13 +78,15 @@ object thunk {
     )
   )
 
+  // The thunk's key wins over the rendered vnode's: the next render's thunk
+  // carries it, and a patched node with any other key would not match.
   private def init0(thunk: VNode.Element): VNode = {
     val fn = thunk.data.fn
     val args = thunk.data.args
     val vnode = fn.get(args.get)
     thunk.copy(
       children = vnode.children,
-      data = vnode.data.copy(fn = fn, args = args)
+      data = vnode.data.copy(key = thunk.data.key, fn = fn, args = args)
     )
   }
 
@@ -102,7 +104,7 @@ object thunk {
       val vnode = curFn.get(args.get)
       thunk.copy(
         children = vnode.children,
-        data = vnode.data.copy(fn = curFn, args = args)
+        data = vnode.data.copy(key = cur.key, fn = curFn, args = args)
       )
     } else {
       oldVnode.toVNode
