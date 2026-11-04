@@ -8,9 +8,8 @@ import {
   thunk,
 } from "snabbdom";
 
-// Mirrors the Scala.js entry (scala/src/main/scala/.../Main.scala) so the two
-// Snabbdom entries differ only in the library. Each row is a thunk, the
-// Snabbdom counterpart of the `memo` rows in the React entries.
+// Keep in step with the Scala.js entry (scala/src/main/scala/.../Main.scala):
+// the comparison is fair only while both apps do the same work.
 
 const adjectives = ["pretty", "large", "big", "small", "tall", "short", "long",
   "handsome", "plain", "quaint", "clean", "elegant", "easy", "angry", "crazy",
@@ -83,8 +82,8 @@ const select = (id) => update((s) => ({ ...s, selected: id }));
 
 const ariaHidden = { attrs: { "aria-hidden": "true" } };
 
-// A thunk is skipped when its arguments are identical (===) to the previous
-// render's.
+// A thunk is skipped only when its function is the same instance as in the
+// previous render, so rows must use this one top-level function.
 function renderRow(row, selected) {
   return h("tr", { key: row.id, class: { danger: selected } }, [
     h("td.col-md-1", String(row.id)),

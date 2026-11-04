@@ -22,11 +22,8 @@ import snabbdom.modules.*
 
 import scala.scalajs.js
 
-/** The js-framework-benchmark keyed app.
-  *
-  * Mirrors `entries/snabbdom/src/main.js` line for line so the two Snabbdom
-  * entries differ only in the library. Each row is a thunk, the Snabbdom
-  * counterpart of the `memo` rows in the React entries.
+/** Keep in step with `entries/snabbdom/src/main.js`: the comparison is fair
+  * only while both apps do the same work.
   */
 object Main {
 

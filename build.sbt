@@ -97,8 +97,6 @@ lazy val benchmarks = (project
   )
   .dependsOn(snabbdom)
 
-// The keyed entry for krausest/js-framework-benchmark.
-// See benchmarks/js-framework-benchmark/README.md.
 lazy val jsFrameworkBenchmark = (project
   .in(file("benchmarks/js-framework-benchmark/scala")))
   .enablePlugins(ScalaJSPlugin, NoPublishPlugin)

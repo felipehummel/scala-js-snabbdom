@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Benchmarks scala-js-snabbdom against Snabbdom (JavaScript) and React with
-# krausest/js-framework-benchmark. See README.md in this directory.
-#
-# Usage: run.sh <js-framework-benchmark checkout> [extra `npm run bench` args]
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
