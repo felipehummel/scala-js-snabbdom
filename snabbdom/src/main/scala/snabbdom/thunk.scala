@@ -64,7 +64,8 @@ object thunk {
     VNode.Element(sel, data, Nil)
   }
 
-  // Shared by every thunk: the hooks read everything from the vnodes.
+  // One instance serves every thunk: the callbacks capture no thunk-specific
+  // state.
   private val hooks: Option[Hooks] = Some(
     Hooks(
       init = Some((vNode: VNode) => init0(vNode.asInstanceOf[VNode.Element])),

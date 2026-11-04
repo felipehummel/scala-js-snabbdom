@@ -71,16 +71,18 @@ object EventListeners {
     })
   )
 
+  // Reuses an assigned listener, so registering the module twice still adds
+  // each event once: the DOM ignores adding the same function again.
   private def listen(vnode: PatchedVNode.Element): Unit = {
-    val listener = new PatchedVNode.Listener(vnode)
-    vnode.listener = listener
+    if (vnode.listener == null) {
+      vnode.listener = new PatchedVNode.Listener(vnode)
+    }
+    val listener = vnode.listener
     val elm = vnode.node
     val names = vnode.data.on.keysIterator
     while (names.hasNext) elm.addEventListener(names.next(), listener.fn, false)
   }
 
-  // `removeEventListener` needs the function that was added, so the old node's
-  // listener is reused and pointed at the new node.
   private def updateEventListeners(
       oldVnode: PatchedVNode.Element,
       vnode: PatchedVNode.Element

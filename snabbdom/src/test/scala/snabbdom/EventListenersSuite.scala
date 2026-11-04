@@ -191,4 +191,64 @@ class EventListenersSuite extends BaseSuite {
     assertEquals(result.length, 3)
   }
 
+  def record(result: ListBuffer[Int], value: Int): EventHandler =
+    EventHandler((_: dom.Event) => { result += value; () })
+
+  def listening(on: (String, EventHandler)*): VNode =
+    h("div", VNodeData(on = on.toMap), "Hover or click me")
+
+  def mouseover(elm: dom.Element): Unit =
+    elm.dispatchEvent(new dom.Event("mouseover"))
+
+  vnode0.test("listens again after every handler was removed") { vnode0 =>
+    val result = ListBuffer[Int]()
+    val vnode1p = patch(vnode0, listening("click" -> record(result, 1)))
+    val elm = vnode1p.node.asInstanceOf[dom.HTMLElement]
+    elm.click()
+    val vnode2p = patch(vnode1p, listening())
+    elm.click()
+    patch(vnode2p, listening("click" -> record(result, 3)))
+    elm.click()
+    assertEquals(result.toList, List(1, 3))
+  }
+
+  vnode0.test("adds a listener for a new event name") { vnode0 =>
+    val result = ListBuffer[Int]()
+    val vnode1p = patch(vnode0, listening("click" -> record(result, 1)))
+    val elm = vnode1p.node.asInstanceOf[dom.HTMLElement]
+    patch(
+      vnode1p,
+      listening("click" -> record(result, 2), "mouseover" -> record(result, 3))
+    )
+    elm.click()
+    mouseover(elm)
+    assertEquals(result.toList, List(2, 3))
+  }
+
+  vnode0.test("removes the listener for a dropped event name") { vnode0 =>
+    val result = ListBuffer[Int]()
+    val vnode1p = patch(
+      vnode0,
+      listening("click" -> record(result, 1), "mouseover" -> record(result, 2))
+    )
+    val elm = vnode1p.node.asInstanceOf[dom.HTMLElement]
+    patch(vnode1p, listening("mouseover" -> record(result, 3)))
+    elm.click()
+    mouseover(elm)
+    assertEquals(result.toList, List(3))
+  }
+
+  vnode0.test("calls a handler once when the module is registered twice") {
+    vnode0 =>
+      val patchTwice = init(Seq(EventListeners.module, EventListeners.module))
+      val result = ListBuffer[Int]()
+      val vnode1p = patchTwice(vnode0, listening("click" -> record(result, 1)))
+      val elm = vnode1p.node.asInstanceOf[dom.HTMLElement]
+      elm.click()
+      assertEquals(result.toList, List(1))
+      patchTwice(vnode1p, listening())
+      elm.click()
+      assertEquals(result.toList, List(1))
+  }
+
 }

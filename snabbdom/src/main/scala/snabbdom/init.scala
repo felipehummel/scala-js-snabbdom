@@ -140,14 +140,11 @@ object init {
             case None =>
               api.createElement(tag) // TODO what about data argument?
           }
-          val pvnode0 = PatchedVNode
-            .Element(
-              sel,
-              data,
-              children = children.map(createElm(_, insertedVNodeQueue)),
-              node = elm
-            )
-            .builtFrom(vnode)
+          val pvnode0 = PatchedVNode.elementFrom(
+            vnode,
+            children.map(createElm(_, insertedVNodeQueue)),
+            elm
+          )
           if (hash < dot) elm.setAttribute("id", sel.substring(hash + 1, dot))
           if (dotIdx > 0) {
             val classes = sel.substring(dot + 1)
@@ -189,12 +186,6 @@ object init {
       }
     }
 
-    def hasRemoveHook(vnode: PatchedVNode): Boolean = vnode match {
-      case PatchedVNode.Element(_, data, _, _) =>
-        data.hook.exists(_.remove.isDefined)
-      case _ => false
-    }
-
     def removeAllVnodes(
         parentElm: dom.Node,
         vnodes: List[PatchedVNode]
@@ -202,13 +193,14 @@ object init {
       vnodes.foreach {
         case child @ PatchedVNode.Element(_, data, _, elm) =>
           invokeDestroyHook(child)
-          if (cbs.remove.isEmpty && !hasRemoveHook(child)) {
+          val removeHook = data.hook.flatMap(_.remove)
+          if (cbs.remove.isEmpty && removeHook.isEmpty) {
             api.parentNode(elm).foreach(api.removeChild(_, elm))
           } else {
             val listeners = cbs.remove.length + 1
             val rm = createRmCb(elm, listeners)
             cbs.remove.foreach(_(child, rm))
-            data.hook.flatMap(_.remove).fold(rm()) { hook =>
+            removeHook.fold(rm()) { hook =>
               hook(child, rm); ()
             }
           }
@@ -231,9 +223,9 @@ object init {
       val news = newCh.toArray
       val oldLen = olds.length
       val newLen = news.length
-      val claimed = new Array[Boolean](oldLen)
       val children = new Array[PatchedVNode](newLen)
-      val movable = new Array[Boolean](newLen)
+      // Old index of each new child, -1 when it was created.
+      val oldIndex = new Array[Int](newLen)
 
       // Common prefix: every child before `start` matched the old child at
       // its own position, which is what both rules choose there.
@@ -242,8 +234,7 @@ object init {
       while (start < common && sameVnode(olds(start), news(start))) {
         children(start) =
           patchVnode(olds(start), news(start), insertedVnodeQueue)
-        claimed(start) = true
-        movable(start) = isKeyed(news(start))
+        oldIndex(start) = start
         start += 1
       }
 
@@ -263,89 +254,45 @@ object init {
         return toList(children)
       }
 
-      // Unclaimed keyed old children, in order: `firstWithKey` holds the first
-      // index for each key and `nextWithKey` the next index with the same key.
-      var firstWithKey: JSMap[String, Int] = null
-      var nextWithKey: Array[Int] = null
-      def indexKeys(): Unit = {
-        firstWithKey = new JSMap[String, Int]()
-        nextWithKey = new Array[Int](oldLen)
-        var k = oldLen - 1
-        while (k >= start) {
-          olds(k) match {
-            case PatchedVNode.Element(_, data, _, _) if data.key.isDefined =>
-              val key = data.key.get
-              nextWithKey(k) = firstWithKey.get(key).getOrElse(-1)
-              firstWithKey.set(key, k)
-            case _ => ()
-          }
-          k -= 1
-        }
-      }
-
-      // Old index of each new child, -1 when it was created.
-      val oldIndex = new Array[Int](newLen)
-      var k = 0
-      while (k < start) {
-        oldIndex(k) = k
-        k += 1
-      }
+      var keys: KeyIndex = null
       var anchoredAfterStart = false
-      var claimedCount = start
-
       var j = start
       while (j < newLen) {
         val vnode = news(j)
-        var matched = -1
-        vnode match {
+        val matched = vnode match {
           case VNode.Element(_, data, _) if data.key.isDefined =>
-            if (firstWithKey == null) indexKeys()
-            val key = data.key.get
-            var previous = -1
-            var candidate = firstWithKey.get(key).getOrElse(-1)
-            while (candidate >= 0 && !sameVnode(olds(candidate), vnode)) {
-              previous = candidate
-              candidate = nextWithKey(candidate)
-            }
-            if (candidate >= 0) {
-              // Unlinked, so later lookups never walk past claimed children.
-              val next = nextWithKey(candidate)
-              if (previous < 0) firstWithKey.set(key, next)
-              else nextWithKey(previous) = next
-              matched = candidate
-            }
-            movable(j) = true
+            if (keys == null) keys = new KeyIndex(olds, start)
+            keys.claim(data.key.get, vnode)
           case _ =>
-            if (j < oldLen && !claimed(j) && sameVnode(olds(j), vnode)) {
-              matched = j
-            }
+            if (j < oldLen && sameVnode(olds(j), vnode)) {
+              anchoredAfterStart = true
+              j
+            } else -1
         }
         oldIndex(j) = matched
-        if (matched >= 0) {
-          claimed(matched) = true
-          claimedCount += 1
-          children(j) = patchVnode(olds(matched), vnode, insertedVnodeQueue)
-          if (!movable(j)) anchoredAfterStart = true
-        } else {
-          children(j) = createElm(vnode, insertedVnodeQueue)
-          movable(j) = true
-        }
+        children(j) =
+          if (matched >= 0) patchVnode(olds(matched), vnode, insertedVnodeQueue)
+          else createElm(vnode, insertedVnodeQueue)
         j += 1
       }
 
       if (anchoredAfterStart)
-        placeAroundAnchors(parentElm, olds, children, movable)
+        placeAroundAnchors(parentElm, olds, news, children, oldIndex)
       else placeWithFewestMoves(parentElm, children, oldIndex)
 
-      if (claimedCount < oldLen) {
-        var removed = List.empty[PatchedVNode]
-        k = oldLen - 1
-        while (k >= 0) {
-          if (!claimed(k)) removed = olds(k) :: removed
-          k -= 1
-        }
-        removeAllVnodes(parentElm, removed)
+      val claimed = new Array[Boolean](oldLen)
+      j = start
+      while (j < newLen) {
+        if (oldIndex(j) >= 0) claimed(oldIndex(j)) = true
+        j += 1
       }
+      var removed = List.empty[PatchedVNode]
+      var k = oldLen - 1
+      while (k >= start) {
+        if (!claimed(k)) removed = olds(k) :: removed
+        k -= 1
+      }
+      if (removed.nonEmpty) removeAllVnodes(parentElm, removed)
 
       toList(children)
 
@@ -383,8 +330,9 @@ object init {
     def placeAroundAnchors(
         parentElm: dom.Node,
         olds: Array[PatchedVNode],
+        news: Array[VNode],
         children: Array[PatchedVNode],
-        movable: Array[Boolean]
+        oldIndex: Array[Int]
     ): Unit = {
       val reconciled = new JSSet[dom.Node]()
       var k = 0
@@ -403,7 +351,7 @@ object init {
       k = 0
       while (k < children.length) {
         val node = children(k).node
-        if (movable(k)) {
+        if (oldIndex(k) < 0 || isKeyed(news(k))) {
           val reference = nextReconciled(cursor)
           if (reference eq node) {
             cursor = api.nextSibling(node).orNull
@@ -433,7 +381,7 @@ object init {
         case _ => vnode00
       }
 
-      if (PatchedVNode.matches(oldVnode, vnode)) {
+      if (PatchedVNode.isUnchanged(oldVnode, vnode)) {
 
         oldVnode // nothing to do
 
@@ -469,11 +417,11 @@ object init {
 
           case (
                 PatchedVNode.Element(_, _, oldCh, elm),
-                element @ VNode.Element(sel, data, ch)
+                element @ VNode.Element(_, _, ch)
               ) =>
             val children = (oldCh, ch) match {
               case (_ :: _, _ :: _) =>
-                if (PatchedVNode.childrenMatch(oldCh, ch)) oldCh
+                if (PatchedVNode.childrenUnchanged(oldCh, ch)) oldCh
                 else updateChildren(elm, oldCh, ch, insertedVNodeQueue)
 
               case (Nil, _ :: _) =>
@@ -495,7 +443,7 @@ object init {
                 Nil
 
             }
-            PatchedVNode.Element(sel, data, children, elm).builtFrom(element)
+            PatchedVNode.elementFrom(element, children, elm)
 
           case _ =>
             throw new AssertionError("trying to patch incompatible nodes")
@@ -576,7 +524,8 @@ object init {
     }
   }
 
-  // Negative entries never belong to the run.
+  // Negative entries are created children, which have no old position to
+  // keep, so they are never in the run.
   private def longestIncreasingRun(seq: Array[Int]): Array[Boolean] = {
     val n = seq.length
     val inRun = new Array[Boolean](n)
@@ -616,6 +565,46 @@ object init {
       k -= 1
     }
     list
+  }
+
+  // Unclaimed keyed old children from `start` on. Duplicate keys are claimed
+  // in old-sibling order, across differing selectors.
+  private final class KeyIndex(olds: Array[PatchedVNode], start: Int) {
+
+    // First unclaimed index for each key, and the next one with the same key
+    // (-1 at the end). Claimed indexes are unlinked.
+    private val first = new JSMap[String, Int]()
+    private val next = new Array[Int](olds.length)
+
+    locally {
+      var k = olds.length - 1
+      while (k >= start) {
+        olds(k) match {
+          case PatchedVNode.Element(_, data, _, _) if data.key.isDefined =>
+            val key = data.key.get
+            next(k) = first.get(key).getOrElse(-1)
+            first.set(key, k)
+          case _ => ()
+        }
+        k -= 1
+      }
+    }
+
+    /** Claims the old index matched by `vnode`, whose key is `key`, or -1. */
+    def claim(key: String, vnode: VNode): Int = {
+      var previous = -1
+      var candidate = first.get(key).getOrElse(-1)
+      while (candidate >= 0 && !sameVnode(olds(candidate), vnode)) {
+        previous = candidate
+        candidate = next(candidate)
+      }
+      if (candidate >= 0) {
+        val after = next(candidate)
+        if (previous < 0) first.set(key, after) else next(previous) = after
+      }
+      candidate
+    }
+
   }
 
   private def isKeyed(vnode: VNode): Boolean = vnode match {

@@ -46,9 +46,8 @@ object PatchedVNode {
       }
     }
 
-    // Handed from each patched version of an element to the next while `on`
-    // stays non-empty, so a patch adds or removes only the event names that
-    // changed.
+    // A DOM listener can only be removed with the function that was added,
+    // so the same listener must survive patches while `on` stays non-empty.
     private[snabbdom] var listener: Listener = null
 
     // When non-null, equal to the conversion `toVNode` would build.
@@ -61,36 +60,47 @@ object PatchedVNode {
       vnodeCache
     }
 
-    // Lets `toVNode` answer with `vnode`, the value this node was built from,
-    // when the children prove it equal to the conversion.
-    private[snabbdom] def builtFrom(vnode: VNode.Element): this.type = {
-      if (childrenMatch(children, vnode.children)) vnodeCache = vnode
-      this
-    }
-
   }
 
-  /** `vnode == patched.toVNode`, decided without building the conversion. */
-  private[snabbdom] def matches(patched: PatchedVNode, vnode: VNode): Boolean =
+  private[snabbdom] def elementFrom(
+      vnode: VNode.Element,
+      children: List[PatchedVNode],
+      node: dom.Element
+  ): Element = {
+    val element = Element(vnode.sel, vnode.data, children, node)
+    if (childrenUnchanged(children, vnode.children)) element.vnodeCache = vnode
+    element
+  }
+
+  /** Same answer as `vnode == patched.toVNode`. */
+  private[snabbdom] def isUnchanged(
+      patched: PatchedVNode,
+      vnode: VNode
+  ): Boolean =
     (patched, vnode) match {
       case (e: Element, v: VNode.Element) =>
         val cached = e.vnodeCache
-        if (cached != null) v == cached
-        else
-          e.sel == v.sel && e.data == v.data &&
-          childrenMatch(e.children, v.children)
+        val unchanged =
+          if (cached != null) v == cached
+          else
+            e.sel == v.sel && e.data == v.data &&
+            childrenUnchanged(e.children, v.children)
+        // `v` equals the conversion, so it can stand in for it, and asking
+        // again with the same `v` is then a reference check.
+        if (unchanged) e.vnodeCache = v
+        unchanged
       case (Text(content, _), VNode.Text(other))       => content == other
       case (Comment(content, _), VNode.Comment(other)) => content == other
       case _                                           => false
     }
 
-  private[snabbdom] def childrenMatch(
+  private[snabbdom] def childrenUnchanged(
       patched: List[PatchedVNode],
       vnodes: List[VNode]
   ): Boolean = {
     var ps = patched
     var vs = vnodes
-    while (ps.nonEmpty && vs.nonEmpty && matches(ps.head, vs.head)) {
+    while (ps.nonEmpty && vs.nonEmpty && isUnchanged(ps.head, vs.head)) {
       ps = ps.tail
       vs = vs.tail
     }
