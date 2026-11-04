@@ -23,6 +23,12 @@ import scalajs.js
 sealed trait PatchedVNode {
   def node: dom.Node // the corresponding node in the DOM
   def toVNode: VNode
+
+  // The VNode this node was last created or patched from, as the caller
+  // passed it (before init and prepatch hooks). Patching with the very same
+  // VNode instance again has nothing to do. Set once by `init`, right after
+  // construction, and never visible outside the library.
+  private[snabbdom] var source: VNode = null
 }
 
 object PatchedVNode {
@@ -39,19 +45,37 @@ object PatchedVNode {
       node: dom.Element
   ) extends PatchedVNode {
 
-    private def handleEvent(event: dom.Event): Unit = {
+    private[snabbdom] def handleEvent(event: dom.Event): Unit = {
       val name = event.`type`
       data.on.get(name).foreach { handler =>
         handler.cbs.foreach(_(event, this.toVNode))
       }
     }
 
-    private[snabbdom] lazy val listener: js.Function1[dom.Event, Unit] =
-      handleEvent _
+    // The DOM listener for this element's `on` handlers. The EventListeners
+    // module hands it from the old node to the new one on every patch, so the
+    // element keeps one browser listener per event name.
+    private[snabbdom] var listener: Listener = null
 
-    override def toVNode: VNode =
-      VNode.Element(sel, data, children.map(_.toVNode))
+    // Immutable, so the conversion is computed at most once.
+    private var vnodeCache: VNode = null
 
+    override def toVNode: VNode = {
+      if (vnodeCache == null) {
+        vnodeCache = VNode.Element(sel, data, children.map(_.toVNode))
+      }
+      vnodeCache
+    }
+
+    // `toVNode` if something already asked for it, otherwise null.
+    private[snabbdom] def toVNodeIfComputed: VNode = vnodeCache
+
+  }
+
+  // Dispatches DOM events to the handlers of the element's current vnode.
+  private[snabbdom] final class Listener(var vnode: Element) {
+    val fn: js.Function1[dom.Event, Unit] =
+      (event: dom.Event) => vnode.handleEvent(event)
   }
 
   def element(

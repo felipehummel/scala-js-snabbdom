@@ -47,7 +47,7 @@ object Props {
     create = Some((vNode: PatchedVNode) => {
       vNode match {
         case elm: PatchedVNode.Element =>
-          setProps(elm)
+          if (elm.data.props.nonEmpty) setProps(elm)
         case _ => ()
       }
     }),
@@ -65,7 +65,7 @@ object Props {
   private def setProps(vnode: PatchedVNode.Element): Unit = {
     vnode match {
       case elm: PatchedVNode.Element =>
-        elm.data.props.foreach { case (key, cur) =>
+        elm.data.props.foreachEntry { (key, cur) =>
           elm.node.asInstanceOf[js.Dictionary[Any]] += (key -> cur)
         }
     }
@@ -80,7 +80,7 @@ object Props {
     val oldProps = oldVnode.data.props
     val props = vnode.data.props
 
-    props.foreach { case (key, cur) =>
+    props.foreachEntry { (key, cur) =>
       if (oldProps.get(key).forall(_ != cur)) {
         elm.asInstanceOf[js.Dictionary[Any]] += (key -> cur)
       }
@@ -93,7 +93,7 @@ object Props {
     // E.g., a prop like `id` cannot be deleted
     // (removing the corresponding (reflected) attribute
     // sets this property to the empty string).
-    oldProps.foreach { case (key, _) =>
+    oldProps.foreachEntry { (key, _) =>
       if (!props.contains(key)) {
         elm.asInstanceOf[js.Dictionary[Any]] -= key
       }

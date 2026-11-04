@@ -46,11 +46,7 @@ object EventListeners {
     create = Some((vNode: PatchedVNode) => {
       vNode match {
         case elm: PatchedVNode.Element =>
-          if (elm.data.on.nonEmpty) {
-            elm.data.on.foreach { case (name, _) =>
-              elm.node.addEventListener(name, elm.listener, false)
-            }
-          }
+          if (elm.data.on.nonEmpty) listen(elm)
         case _ => ()
       }
     }),
@@ -64,27 +60,53 @@ object EventListeners {
     destroy = Some((vnode: PatchedVNode) => {
       vnode match {
         case elm: PatchedVNode.Element =>
-          elm.data.on.foreach { case (name, _) =>
-            elm.node.removeEventListener(name, elm.listener, false)
+          val listener = elm.listener
+          if (listener != null) {
+            elm.data.on.foreachEntry { (name, _) =>
+              elm.node.removeEventListener(name, listener.fn, false)
+            }
           }
         case _ => ()
       }
     })
   )
 
+  private def listen(vnode: PatchedVNode.Element): Unit = {
+    val listener = new PatchedVNode.Listener(vnode)
+    vnode.listener = listener
+    val elm = vnode.node
+    val names = vnode.data.on.keysIterator
+    while (names.hasNext) elm.addEventListener(names.next(), listener.fn, false)
+  }
+
+  // Keeps the old node's listener: only event names that appear or disappear
+  // touch the DOM, and the listener now dispatches to the new node.
   private def updateEventListeners(
       oldVnode: PatchedVNode.Element,
       vnode: PatchedVNode.Element
   ): Unit = {
-
-    val elm = oldVnode.node
-    oldVnode.data.on.foreach { case (name, _) =>
-      elm.removeEventListener(name, oldVnode.listener, false)
+    val listener = oldVnode.listener
+    val oldOn = oldVnode.data.on
+    val on = vnode.data.on
+    if (listener == null) {
+      if (on.nonEmpty) listen(vnode)
+    } else {
+      val elm = oldVnode.node
+      oldOn.foreachEntry { (name, _) =>
+        if (!on.contains(name)) {
+          elm.removeEventListener(name, listener.fn, false)
+        }
+      }
+      if (on.nonEmpty) {
+        on.foreachEntry { (name, _) =>
+          if (!oldOn.contains(name)) {
+            elm.addEventListener(name, listener.fn, false)
+          }
+        }
+        listener.vnode = vnode
+        vnode.listener = listener
+      }
     }
-    vnode.data.on.foreach { case (name, _) =>
-      elm.addEventListener(name, vnode.listener, false)
-    }
-
   }
 
 }

@@ -59,7 +59,14 @@ object thunk {
       fn: Any => VNode.Element,
       args: Any
   ): VNode.Element = {
-    val hook = Hooks().copy(
+    val data =
+      VNodeData(key = key, fn = Some(fn), args = Some(args), hook = hooks)
+    VNode.Element(sel, data, Nil)
+  }
+
+  // Shared by every thunk: the hooks read everything from the vnodes.
+  private val hooks: Option[Hooks] = Some(
+    Hooks(
       init = Some((vNode: VNode) => init0(vNode.asInstanceOf[VNode.Element])),
       prepatch = Some((oldVNode: PatchedVNode, vNode: VNode) =>
         prepatch0(
@@ -68,18 +75,15 @@ object thunk {
         )
       )
     )
-    val data =
-      VNodeData(key = key, fn = Some(fn), args = Some(args), hook = Some(hook))
-    VNode.Element(sel, data, Nil)
-  }
+  )
 
   private def init0(thunk: VNode.Element): VNode = {
-    val fn = thunk.data.fn.get
-    val args = thunk.data.args.get
-    val vnode = fn(args)
+    val fn = thunk.data.fn
+    val args = thunk.data.args
+    val vnode = fn.get(args.get)
     thunk.copy(
       children = vnode.children,
-      data = vnode.data.copy(fn = Some(fn), args = Some(args))
+      data = vnode.data.copy(fn = fn, args = args)
     )
   }
 
@@ -100,7 +104,10 @@ object thunk {
         data = vnode.data.copy(fn = curFn, args = args)
       )
     } else {
-      oldVnode.toVNode
+      // Answering with the VNode the old node came from lets `patchVnode`
+      // skip it with a reference check instead of comparing subtrees.
+      val source = oldVnode.source
+      if (source != null) source else oldVnode.toVNode
     }
   }
 

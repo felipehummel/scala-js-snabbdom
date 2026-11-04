@@ -37,7 +37,14 @@ element is lost.
   Unkeyed nodes are never moved.
 - **Keyed children match by key.** Siblings that share a key are each matched
   at most once. A keyed node is moved only when the new order requires it, never
-  when it is already in place. Keyed reordering is not move-minimal.
+  when it is already in place. In a list without unkeyed children, reordering
+  moves the fewest nodes: those outside the longest run that kept its order.
+  Swapping two rows moves two nodes.
+- **Faster patching.** A child patched with the same `VNode` instance as last
+  time, or a `thunk` whose arguments did not change, is skipped by a reference
+  check. Upstream rebuilt and compared whole subtrees at every level, so a
+  small change cost time proportional to the whole tree. See
+  [benchmarks/js-framework-benchmark](benchmarks/js-framework-benchmark/README.md).
 - **Unmatched comment nodes are removed.** Upstream left them in the DOM.
 - **Scala 3 only.** Scala 2.13 is no longer built. CI runs on current GitHub
   Actions with headless Chrome and Firefox.

@@ -278,6 +278,40 @@ class ChildReconciliationSuite extends BaseSuite {
     elementsBefore.map(counterIn).foreach(assertConnectedOnce)
   }
 
+  mounted.test("swaps two keyed children by moving only those two") { elm =>
+    val keys = (0 until 10).map(_.toString).toList
+    val before = patch(elm, h("div", keys.map(keyedCard)))
+    val byKeyBefore =
+      childElements(before).map(child => child.textContent -> child).toMap
+
+    val swapped = keys.updated(1, keys(8)).updated(8, keys(1))
+    val after = patch(before, h("div", swapped.map(keyedCard)))
+
+    val children = childElements(after)
+    assertEquals(children.map(_.textContent), swapped)
+    swapped.zip(children).foreach { case (key, child) =>
+      assert(child eq byKeyBefore(key))
+    }
+    assertEquals(children.map(counterIn(_).disconnects).sum, 2)
+  }
+
+  mounted.test("skips a child patched again with the same VNode instance") {
+    elm =>
+      var updates = 0
+      val counting =
+        Hooks(update = Some((_: PatchedVNode, _: VNode) => updates += 1))
+      val shared = h("span", VNodeData(hook = Some(counting)), "same")
+
+      val before = patch(elm, h("div", List(shared, h("span", "a"))))
+      val after = patch(before, h("div", List(shared, h("span", "b"))))
+
+      assertEquals(updates, 0)
+      assertEquals(
+        childElements(after).map(_.textContent),
+        List("same", "b")
+      )
+  }
+
   mounted.test("moves keyed siblings around an unkeyed child") { elm =>
     val before = patch(
       elm,
