@@ -36,32 +36,35 @@ fails to load the build there.
 ## Results, 2026-11-04
 
 Headless Chrome on an Apple M5 Pro, benchmark commit `fa510a7`, React 19.2.0,
-Snabbdom 3.6.4. All three entries ran in the same run, so they shared the
-machine's load (load average 17 to 35 during the run; absolute times are high,
-the ratios are what to read). Times are in milliseconds, click to end of
-paint: median, then the interquartile range and the run count. Some benchmarks
-throttle the CPU, the same way for all three. Memory, bundle size and first
-paint are single runs.
+Snabbdom 3.6.4. All three entries ran in the same run. The machine was busy
+with other processes (load average 10 to 22), and js-framework-benchmark runs
+the entries one after another within each benchmark, so the load can differ
+between the cells of a row. Absolute times are inflated; read the ratios.
+Times are in milliseconds, click to end of paint: median, then the
+interquartile range and the run count. Some benchmarks throttle the CPU, the
+same way for all three. Memory figures are single runs. Bundle size and first
+paint are single runs from an earlier build the same day, whose bundle is
+within 0.1 KB of the current one.
 
 | Benchmark | React | Snabbdom JS | fork | fork / React |
 | --- | ---: | ---: | ---: | ---: |
-| create 1,000 rows | 47.4 (43.8–56.4, n=15) | 48.5 (41.5–54.0, n=15) | 66.1 (56.2–73.0, n=15) | 1.39 |
-| replace all rows | 58.2 (53.6–65.8, n=15) | 62.8 (58.4–67.3, n=15) | 76.7 (67.3–81.7, n=15) | 1.32 |
-| update every 10th row | 51.6 (49.9–58.0, n=15) | 46.8 (42.1–50.1, n=15) | 72.0 (71.3–77.6, n=15) | 1.40 |
-| select row | 21.0 (20.1–21.6, n=25) | 18.7 (17.4–21.5, n=25) | 24.2 (22.6–25.6, n=25) | 1.15 |
-| swap rows | 251.2 (244.8–323.6, n=15) | 47.0 (44.6–51.0, n=15) | 59.4 (56.7–67.7, n=15) | 0.24 |
-| remove row | 35.6 (34.2–36.3, n=15) | 33.3 (30.9–34.0, n=15) | 37.0 (36.0–39.3, n=15) | 1.04 |
-| create 10,000 rows | 770.8 (747.8–815.1, n=15) | 690.4 (606.5–734.2, n=15) | 591.2 (554.0–674.4, n=15) | 0.77 |
-| append 1,000 rows | 64.2 (57.2–66.2, n=15) | 63.5 (59.8–65.7, n=15) | 88.1 (83.8–92.1, n=15) | 1.37 |
-| clear rows | 44.1 (41.1–46.5, n=15) | 47.2 (36.1–55.0, n=15) | 34.0 (32.8–35.5, n=15) | 0.77 |
-| memory, ready (MB) | 1.1 | 0.6 | 1.4 | 1.25 |
+| create 1,000 rows | 37.6 (32.5–41.9, n=15) | 37.5 (36.3–41.2, n=15) | 44.9 (44.3–48.0, n=15) | 1.19 |
+| replace all rows | 47.2 (40.1–50.4, n=15) | 50.5 (48.2–52.4, n=15) | 61.6 (58.1–62.5, n=15) | 1.31 |
+| update every 10th row | 41.0 (39.1–42.3, n=15) | 34.4 (33.1–35.2, n=15) | 57.6 (55.8–58.7, n=15) | 1.40 |
+| select row | 15.0 (13.5–16.5, n=25) | 13.4 (12.6–14.2, n=25) | 18.4 (17.5–19.3, n=25) | 1.23 |
+| swap rows | 185.3 (174.1–203.5, n=15) | 38.3 (36.4–40.7, n=15) | 45.7 (43.5–47.4, n=15) | 0.25 |
+| remove row | 29.3 (29.1–30.9, n=15) | 29.2 (26.1–31.1, n=15) | 32.3 (31.1–32.8, n=15) | 1.10 |
+| create 10,000 rows | 702.3 (659.2–735.5, n=15) | 499.7 (492.0–520.5, n=15) | 512.7 (499.5–568.4, n=15) | 0.73 |
+| append 1,000 rows | 56.3 (56.0–59.5, n=15) | 54.6 (54.0–55.1, n=15) | 66.2 (64.8–73.6, n=15) | 1.18 |
+| clear rows | 35.2 (34.2–36.8, n=15) | 31.6 (30.4–32.2, n=15) | 31.2 (29.8–33.5, n=15) | 0.89 |
+| memory, ready (MB) | 1.2 | 0.6 | 1.4 | 1.17 |
 | memory, 1,000 rows (MB) | 4.4 | 2.9 | 4.8 | 1.08 |
-| memory, 1,000 rows cleared (MB) | 2.0 | 0.8 | 1.8 | 0.92 |
+| memory, 1,000 rows cleared (MB) | 2.0 | 0.8 | 1.8 | 0.93 |
 | bundle, compressed (KB) | 51.4 | 4.4 | 46.1 | 0.90 |
 | first paint | 621.1 | 96.9 | 464.1 | 0.75 |
 
-Every case is within 2x of React in this run; the slowest are create, update
-and append, at about 1.4x.
+Every case is within 2x of React in this run. The slowest are update every
+10th row (1.40x) and replace all rows (1.31x).
 
 ## How the fork patches
 
