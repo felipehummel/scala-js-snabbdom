@@ -61,28 +61,24 @@ paint are single runs.
 | first paint | 621.1 | 96.9 | 464.1 | 0.75 |
 
 Every case is within 2x of React in this run; the slowest are create, update
-and append, at about 1.4x. They were not profiled again after the last change.
+and append, at about 1.4x.
 
-Before the patching work, measured the same way in an earlier, quieter run,
-the fork was 3.6x React on update every 10th row, 7.6x on select, 3.6x on
-remove row and 2.3x on append.
+## How the fork patches
 
-What changed:
-
-- Every `patchVnode` converted the old subtree back to a `VNode` and compared
-  it with the new one, at each level, so an update that touched two rows still
-  walked and allocated the whole table. A patched element now keeps the
-  `VNode` it was built from whenever that `VNode` equals the conversion, so an
-  unchanged thunk (which answers with that `VNode`) is skipped by a reference
-  check, and an equal rebuilt subtree by a comparison that allocates nothing.
-- Keyed children were placed with a forward scan that moved 997 nodes to swap
-  two rows. They are now placed around the longest increasing run of old
-  positions, so a swap moves two nodes.
-- Event listeners were removed and added again on every patch. The element now
-  keeps one listener that dispatches to its current vnode.
-- Appending to an unchanged list creates and appends without matching.
-- Smaller allocation cuts in the create path: no closure for empty modules,
-  no regex to build the class attribute.
+- A patched element keeps the `VNode` it was built from whenever that `VNode`
+  equals the conversion `toVNode` would build. An unchanged thunk answers with
+  that `VNode`, so skipping it is a reference check, and an equal rebuilt
+  subtree is found equal by a comparison that allocates nothing. An update
+  that touches two rows therefore does not walk the whole table.
+- Keyed children are placed around the longest increasing run of their old
+  positions, so swapping two rows moves two nodes.
+- An element keeps one event listener across patches, which dispatches to its
+  current vnode, so a patch adds or removes only the event names that changed.
+- When every old child matches the new child at its own position, the rest
+  of the new children are created and appended without a key lookup.
+- Modules iterate their maps without allocating a tuple per entry, styles and
+  props skip empty maps on create, and the class attribute is built without a
+  regex.
 
 All of the mutable state is private to the library: `PatchedVNode` and the
 public API are unchanged for callers.

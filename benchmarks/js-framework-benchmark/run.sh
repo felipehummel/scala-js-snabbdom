@@ -38,10 +38,26 @@ echo "==> Installing the benchmark driver"
 (cd "$jfb" && npm ci --legacy-peer-deps --silent && npm run install-local)
 
 echo "==> Starting the server"
-(cd "$jfb" && npm start) &
+url=http://localhost:8080/index.html
+if curl -sf -o /dev/null "$url"; then
+  echo "Port 8080 is already serving, maybe another checkout; stop that server first." >&2
+  exit 1
+fi
+(cd "$jfb" && exec npm start) &
 server=$!
 trap 'kill $server 2>/dev/null || true' EXIT
-until curl -sf -o /dev/null http://localhost:8080/index.html; do sleep 1; done
+for _ in $(seq 60); do
+  if ! kill -0 "$server" 2>/dev/null; then
+    echo "The server exited before it was ready." >&2
+    exit 1
+  fi
+  if curl -sf -o /dev/null "$url"; then break; fi
+  sleep 1
+done
+if ! curl -sf -o /dev/null "$url"; then
+  echo "The server was not ready after 60 seconds." >&2
+  exit 1
+fi
 
 frameworks=(keyed/react-hooks keyed/snabbdom keyed/scala-js-snabbdom)
 (cd "$jfb/webdriver-ts" && npm run isKeyed -- --headless true "${frameworks[@]}")
