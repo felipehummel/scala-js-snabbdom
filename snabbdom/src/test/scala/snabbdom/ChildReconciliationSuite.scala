@@ -161,7 +161,34 @@ class ChildReconciliationSuite extends BaseSuite {
       assert(shrunkChildren(0) eq elementsBefore(0))
       assert(shrunkChildren(1) eq elementsBefore(1))
       elementsBefore.map(counterIn).foreach(assertConnectedOnce)
+      assertEquals(counterIn(grownChildren(2)).disconnects, 1)
       assertEquals(counterIn(grownChildren(3)).disconnects, 1)
+  }
+
+  List(
+    ("inserts at the front of", List("a", "b"), List("new", "a", "b")),
+    ("inserts in the middle of", List("a", "b"), List("a", "new", "b")),
+    ("removes at the front of", List("a", "b", "c"), List("b", "c")),
+    ("removes in the middle of", List("a", "b", "c"), List("a", "c"))
+  ).foreach { case (change, titles, newTitles) =>
+    mounted.test(s"$change an unkeyed list by patching each position") { elm =>
+      val before = patch(elm, h("div", titles.map(card("div", _))))
+      val elementsBefore = childElements(before)
+      val shared = math.min(titles.length, newTitles.length)
+
+      val after = patch(before, h("div", newTitles.map(card("div", _))))
+
+      val children = childElements(after)
+      assertEquals(children.map(_.textContent), newTitles)
+      children.zip(elementsBefore).foreach { case (child, before) =>
+        assert(child eq before)
+      }
+      elementsBefore.take(shared).map(counterIn).foreach(assertConnectedOnce)
+      elementsBefore.drop(shared).map(counterIn).foreach { counter =>
+        assertEquals(counter.disconnects, 1)
+      }
+      children.drop(shared).map(counterIn).foreach(assertConnectedOnce)
+    }
   }
 
   mounted.test(
@@ -256,7 +283,10 @@ class ChildReconciliationSuite extends BaseSuite {
       elm,
       h("div", List(keyedCard("x"), card("div", "middle"), keyedCard("y")))
     )
-    val middleBefore = childElements(before)(1)
+    val elementsBefore = childElements(before)
+    val xBefore = elementsBefore(0)
+    val middleBefore = elementsBefore(1)
+    val yBefore = elementsBefore(2)
 
     val after = patch(
       before,
@@ -265,8 +295,94 @@ class ChildReconciliationSuite extends BaseSuite {
 
     val children = childElements(after)
     assertEquals(children.map(_.textContent), List("y", "middle", "x"))
+    assert(children(0) eq yBefore)
     assert(children(1) eq middleBefore)
+    assert(children(2) eq xBefore)
     assertConnectedOnce(counterIn(middleBefore))
+    List(xBefore, yBefore).map(counterIn).foreach { counter =>
+      assertEquals(counter.connects, 2)
+      assertEquals(counter.disconnects, 1)
+    }
+  }
+
+  mounted.test("inserts an unkeyed child without moving keyed siblings") {
+    elm =>
+      val before = patch(elm, h("div", List(keyedCard("x"), keyedCard("y"))))
+      val elementsBefore = childElements(before)
+
+      val after = patch(
+        before,
+        h("div", List(keyedCard("x"), card("div", "middle"), keyedCard("y")))
+      )
+
+      val children = childElements(after)
+      assertEquals(children.map(_.textContent), List("x", "middle", "y"))
+      assert(children(0) eq elementsBefore(0))
+      assert(children(2) eq elementsBefore(1))
+      elementsBefore.map(counterIn).foreach(assertConnectedOnce)
+  }
+
+  List("div", "span").foreach { secondSel =>
+    mounted.test(s"keeps both div and $secondSel siblings that share a key") {
+      elm =>
+        def sameKeyPair(version: String): VNode =
+          h(
+            "div",
+            List("div", secondSel).zipWithIndex.map { case (sel, index) =>
+              h(
+                sel,
+                VNodeData(key = Some("x")),
+                List(h("h3", s"$index-$version"), h(counterTag))
+              )
+            }
+          )
+        val before = patch(elm, sameKeyPair("old"))
+        val elementsBefore = childElements(before)
+
+        val after = patch(before, sameKeyPair("new"))
+
+        val children = childElements(after)
+        assertEquals(children.map(_.textContent), List("0-new", "1-new"))
+        children.zip(elementsBefore).foreach { case (child, before) =>
+          assert(child eq before)
+        }
+        elementsBefore.map(counterIn).foreach(assertConnectedOnce)
+    }
+  }
+
+  mounted.test(
+    "leaves keyed children in place beside a node awaiting removal"
+  ) { elm =>
+    var finishRemoval: () => Unit = () => ()
+    val delayedRemoval = h(
+      "div",
+      VNodeData(
+        key = Some("b"),
+        hook = Some(Hooks(remove = Some((_, rm) => finishRemoval = rm)))
+      ),
+      List(h("h3", "b"))
+    )
+    val before = patch(
+      elm,
+      h("div", List(keyedCard("a"), delayedRemoval, keyedCard("c")))
+    )
+    val elementsBefore = childElements(before)
+
+    val removing =
+      patch(before, h("div", List(keyedCard("a"), keyedCard("c"))))
+    assertEquals(childElements(removing), elementsBefore)
+
+    val after = patch(
+      removing,
+      h("div", List(keyedCard("a"), keyedCard("c"), keyedCard("d")))
+    )
+    finishRemoval()
+
+    val children = childElements(after)
+    assertEquals(children.map(_.textContent), List("a", "c", "d"))
+    assert(children(0) eq elementsBefore(0))
+    assert(children(1) eq elementsBefore(2))
+    children.map(counterIn).foreach(assertConnectedOnce)
   }
 
 }
