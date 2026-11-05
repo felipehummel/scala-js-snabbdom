@@ -138,17 +138,22 @@ class ThunkSuite extends BaseSuite {
       called += 1
       h("li", arg.toString)
     }
-    def list(ids: List[Int]) =
-      h("ul", ids.map(id => thunk("li", id.toString, row, id)))
-    val vnode1p = patch(vnode0, list(List(1, 2, 3)))
+    def list(rows: List[(String, String)]) =
+      h("ul", rows.map { case (key, label) => thunk("li", key, row, label) })
+    val vnode1p = patch(vnode0, list(List("1" -> "a", "2" -> "b", "3" -> "c")))
     val before = vnode1p.node.childNodes.toList
-    val vnode2p = patch(vnode1p, list(List(3, 1, 2)))
-    val after = vnode2p.node.childNodes.toList
-    assertEquals(after.map(_.textContent), List("3", "1", "2"))
+    val vnode2p = patch(vnode1p, list(List("1" -> "a", "2" -> "B", "3" -> "c")))
+    val updated = vnode2p.node.childNodes.toList
+    assertEquals(updated.map(_.textContent), List("a", "B", "c"))
+    assert(updated(1) eq before(1))
+    assertEquals(called, 4)
+    val vnode3p = patch(vnode2p, list(List("3" -> "c", "1" -> "a", "2" -> "B")))
+    val after = vnode3p.node.childNodes.toList
+    assertEquals(after.map(_.textContent), List("c", "a", "B"))
     assert(after(0) eq before(2))
     assert(after(1) eq before(0))
     assert(after(2) eq before(1))
-    assertEquals(called, 3)
+    assertEquals(called, 4)
   }
 
   vnode0.test("keeps an unkeyed thunk whose render function sets a key") {
