@@ -48,8 +48,9 @@ object Styles {
   val module: Module = Module().copy(
     create = Some((vNode: PatchedVNode) => {
       vNode match {
-        case elm: PatchedVNode.Element => setStyle(elm)
-        case _                         => ()
+        case elm: PatchedVNode.Element =>
+          if (elm.data.style.nonEmpty) setStyle(elm)
+        case _ => ()
       }
     }),
     update = Some((oldVNode: PatchedVNode, vNode: VNode) => {
@@ -64,7 +65,7 @@ object Styles {
   )
 
   private def setStyle(vnode: PatchedVNode.Element): Unit = {
-    vnode.data.style.foreach { case (name, cur) =>
+    vnode.data.style.foreachEntry { (name, cur) =>
       if (name.startsWith("--")) {
         vnode.node.asInstanceOf[dom.HTMLElement].style.setProperty(name, cur)
       } else {
@@ -86,7 +87,7 @@ object Styles {
     val oldStyle = oldVnode.data.style
     val style = vnode.data.style
 
-    oldStyle.foreach { case (name, _) =>
+    oldStyle.foreachEntry { (name, _) =>
       if (!style.contains(name)) {
         if (name.startsWith("--")) {
           elm.asInstanceOf[dom.HTMLElement].style.removeProperty(name)
@@ -99,7 +100,7 @@ object Styles {
       }
     }
 
-    style.foreach { case (name, cur) =>
+    style.foreachEntry { (name, cur) =>
       if (oldStyle.get(name).forall(_ != cur)) {
         if (name.startsWith("--")) {
           elm.asInstanceOf[dom.HTMLElement].style.setProperty(name, cur)

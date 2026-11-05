@@ -1,15 +1,25 @@
-ThisBuild / tlBaseVersion := "0.2"
+ThisBuild / tlBaseVersion := "0.3"
 
 ThisBuild / scalaVersion := "3.1.2"
-ThisBuild / organization := "io.github.buntec"
-ThisBuild / organizationName := "buntec"
+ThisBuild / organization := "io.github.felipehummel"
+ThisBuild / organizationName := "felipehummel"
 ThisBuild / startYear := Some(2022)
+ThisBuild / homepage := Some(
+  url("https://github.com/felipehummel/scala-js-snabbdom")
+)
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/felipehummel/scala-js-snabbdom"),
+    "scm:git@github.com:felipehummel/scala-js-snabbdom.git"
+  )
+)
 ThisBuild / tlSonatypeUseLegacyHost := false
 // The fork has no Sonatype or PGP secrets, so CI publishes only from tags.
 ThisBuild / tlCiReleaseBranches := Seq.empty
 
 ThisBuild / developers := List(
   tlGitHubDev("buntec", "Christoph Bunte"),
+  tlGitHubDev("felipehummel", "Felipe Hummel"),
   tlGitHubDev("armanbilge", "Arman Bilge"),
   tlGitHubDev("davesmith00000", "Dave Smith")
 )
@@ -50,12 +60,22 @@ lazy val scalajsDomVersion = "2.8.0"
 lazy val scalacheckVersion = "1.17.0"
 lazy val munitVersion = "1.0.0-M11"
 
-lazy val root = tlCrossRootProject.aggregate(snabbdom, examples, benchmarks)
+// Source headers keep the original author's copyright.
+lazy val originalAuthorHeader =
+  headerLicense := Some(HeaderLicense.ALv2("2022", "buntec"))
+
+lazy val root = tlCrossRootProject.aggregate(
+  snabbdom,
+  examples,
+  benchmarks,
+  jsFrameworkBenchmark
+)
 
 lazy val snabbdom = (project
   .in(file("snabbdom")))
   .enablePlugins(ScalaJSPlugin)
   .settings(
+    originalAuthorHeader,
     name := "scala-js-snabbdom",
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,
@@ -78,6 +98,7 @@ lazy val examples = (project
   .in(file("examples")))
   .enablePlugins(ScalaJSPlugin, BundleMonPlugin, NoPublishPlugin)
   .settings(
+    originalAuthorHeader,
     name := "scala-js-snabbdom-examples",
     scalaJSUseMainModuleInitializer := true,
     Compile / fastLinkJS / scalaJSLinkerConfig ~= {
@@ -96,7 +117,17 @@ lazy val benchmarks = (project
   .in(file("benchmarks")))
   .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
   .settings(
+    originalAuthorHeader,
     name := "scala-js-snabbdom-benchmarks",
     scalaJSUseMainModuleInitializer := false
+  )
+  .dependsOn(snabbdom)
+
+lazy val jsFrameworkBenchmark = (project
+  .in(file("benchmarks/js-framework-benchmark/scala")))
+  .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
+  .settings(
+    name := "scala-js-snabbdom-js-framework-benchmark",
+    scalaJSUseMainModuleInitializer := true
   )
   .dependsOn(snabbdom)

@@ -59,8 +59,16 @@ object thunk {
       fn: Any => VNode.Element,
       args: Any
   ): VNode.Element = {
-    val hook = Hooks().copy(
-      init = Some((vNode: VNode) => init0(vNode.asInstanceOf[VNode.Element])),
+    val data =
+      VNodeData(key = key, fn = Some(fn), args = Some(args), hook = hooks)
+    VNode.Element(sel, data, Nil)
+  }
+
+  // One instance serves every thunk: the callbacks capture no thunk-specific
+  // state.
+  private val hooks: Option[Hooks] = Some(
+    Hooks(
+      init = Some((vNode: VNode) => render(vNode.asInstanceOf[VNode.Element])),
       prepatch = Some((oldVNode: PatchedVNode, vNode: VNode) =>
         prepatch0(
           oldVNode.asInstanceOf[PatchedVNode.Element],
@@ -68,18 +76,17 @@ object thunk {
         )
       )
     )
-    val data =
-      VNodeData(key = key, fn = Some(fn), args = Some(args), hook = Some(hook))
-    VNode.Element(sel, data, Nil)
-  }
+  )
 
-  private def init0(thunk: VNode.Element): VNode = {
-    val fn = thunk.data.fn.get
-    val args = thunk.data.args.get
-    val vnode = fn(args)
+  // The thunk's key wins over the rendered vnode's: the next render's thunk
+  // carries it, and a patched node with any other key would not match.
+  private def render(thunk: VNode.Element): VNode = {
+    val fn = thunk.data.fn
+    val args = thunk.data.args
+    val vnode = fn.get(args.get)
     thunk.copy(
       children = vnode.children,
-      data = vnode.data.copy(fn = Some(fn), args = Some(args))
+      data = vnode.data.copy(key = thunk.data.key, fn = fn, args = args)
     )
   }
 
@@ -89,19 +96,8 @@ object thunk {
   ): VNode = {
     val old = oldVnode.data
     val cur = thunk.data
-    val oldArgs = old.args
-    val args = cur.args
-    val oldFn = old.fn
-    val curFn = cur.fn
-    if (oldFn != curFn || oldArgs != args) {
-      val vnode = curFn.get(args.get)
-      thunk.copy(
-        children = vnode.children,
-        data = vnode.data.copy(fn = curFn, args = args)
-      )
-    } else {
-      oldVnode.toVNode
-    }
+    if (old.fn != cur.fn || old.args != cur.args) render(thunk)
+    else oldVnode.toVNode
   }
 
 }
