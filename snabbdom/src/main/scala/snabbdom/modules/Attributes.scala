@@ -92,13 +92,16 @@ object Attributes {
     }
 
   // An attribute parsed from HTML markup, such as `xml:lang` on an element
-  // hydrated by `toVNode`, has no namespace even with a prefix, so this does
-  // not remove it.
+  // hydrated by `toVNode`, has no namespace even with a prefix: its local name
+  // is the whole key. `removeAttribute(key)` would find it too, but on an HTML
+  // element it lowercases the key, so dropping `xlink:HREF` would also remove
+  // `xlink:href`.
   private def remove(elm: dom.Element, key: String): Unit =
     namespaceOf(key) match {
       case None => elm.removeAttribute(key)
       case Some(ns) =>
         elm.removeAttributeNS(ns, key.substring(key.indexOf(':') + 1))
+        elm.removeAttributeNS(null, key)
     }
 
   private def write(elm: dom.Element, key: String, attr: AttrValue): Unit =

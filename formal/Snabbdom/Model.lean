@@ -146,11 +146,13 @@ def setKey (d : Dom) (n : NodeId) (k v : String) : Dom :=
   | none => d.setAttr n k v
   | some ns => d.setAttrNS n ns k v
 
-/-- `remove` -/
+/-- `remove`. A namespaced key also removes the attribute with no namespace
+and the whole key as local name, which is what HTML markup such as
+`<div xml:lang="fr">` parses to and `toVNode` hydrates. -/
 def removeKey (d : Dom) (n : NodeId) (k : String) : Dom :=
   match namespaceOf k with
   | none => d.removeAttr n k
-  | some ns => d.removeAttrNS n (some ns) (splitQName k).2
+  | some ns => (d.removeAttrNS n (some ns) (splitQName k).2).removeAttrNS n none k
 
 /-- `write` -/
 def applyAttr (d : Dom) (n : NodeId) (k : String) : AttrVal → Dom

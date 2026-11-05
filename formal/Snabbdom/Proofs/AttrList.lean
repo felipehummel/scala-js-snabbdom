@@ -345,4 +345,19 @@ theorem removeAttrNS_realizes (k ns : String) (h : namespaceOf k = some ns) :
       (overwrite k none) :=
   removeFirst_realizes _ _ (ns_local_iff h)
 
+/-- The attribute with no namespace and a namespaced key as local name is never
+`Canon`, so removing it changes nothing on a tidy list. -/
+theorem removeNullNS_realizes (k ns : String) (h : namespaceOf k = some ns) :
+    Realizes (removeFirst (fun a => a.ns == none && a.localName == k)) id := by
+  intro l ht
+  rw [removeFirst_of_none _ _ (fun x hx => ?_)]
+  · exact ⟨ht, rfl⟩
+  have hc := ht.2 x hx
+  unfold Attr.Canon at hc
+  split at hc
+  · rename_i e
+    simp only [e, beq_self_eq_true, Bool.true_and, beq_eq_false_iff_ne, ne_eq]
+    rintro rfl; rw [h] at hc; cases hc.2
+  · rename_i e; simp [e]
+
 end Snabbdom

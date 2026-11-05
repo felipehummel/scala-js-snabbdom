@@ -209,7 +209,9 @@ theorem removeKey_step (d : Dom) (n : NodeId) (k : String) :
   unfold removeKey attrName
   cases h : namespaceOf k with
   | none => exact AttrStep.modify d n (removeAttr_realizes k)
-  | some ns => exact AttrStep.modify d n (removeAttrNS_realizes k ns h)
+  | some ns =>
+    exact (AttrStep.modify d n (removeAttrNS_realizes k ns h)).trans
+      (AttrStep.modify _ n (removeNullNS_realizes k ns h))
 
 theorem applyAttr_step (d : Dom) (n : NodeId) (k : String) (v : AttrVal) (hk : KeyOK k) :
     AttrStep d (applyAttr d n k v) n (overwrite (attrName k) (keyVal k v)) := by
@@ -307,5 +309,17 @@ theorem moduleUpdate_step (sel : String) (a : Data) (ch : List PNode) (n : NodeI
   · exact ⟨_, Dom.updateAttrs_step sel' n a.attrs b.attrs d ha.keyOK hb.keyOK, update_correct sel' _ _ ha hb⟩
   · rename_i h; simp only [ne_eq, Decidable.not_not] at h
     exact ⟨id, Dom.AttrStep.refl d n, by rw [h]; rfl⟩
+
+/-! ## Hydration
+
+`toVNode` on `<div xml:lang="fr">` gives the key `xml:lang` for an attribute
+with no namespace, which `removeAttributeNS` alone does not find. -/
+
+/-- An element as HTML markup parses `<div xml:lang="fr">`. -/
+def hydrated : Dom :=
+  { nodes := fun m => if m = 0 then some { kind := .elem "div", attrs := [⟨none, none, "xml:lang", "fr"⟩] } else none,
+    next := 1 }
+
+example : ((removeKey hydrated 0 "xml:lang").nodes 0).map (·.attrs) = some [] := by decide +kernel
 
 end Snabbdom
