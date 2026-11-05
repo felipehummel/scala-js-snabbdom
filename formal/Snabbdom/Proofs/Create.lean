@@ -2,12 +2,10 @@ import Snabbdom.Proofs.Attrs
 
 namespace Snabbdom
 
-/-! ### What `Mirrors` looks at -/
-
 def DomNode.content (x : DomNode) : Kind × (String → Option String) × List NodeId :=
   (x.kind, x.attrs, x.children)
 
-/-- `d'` agrees with `d` on the kind, attributes and children of node `i`. -/
+/-- Node `i` looks the same to `Mirrors` in `d` and `d'`; its parent may differ. -/
 def SameContent (d d' : Dom) (i : NodeId) : Prop :=
   (d'.nodes i).map DomNode.content = (d.nodes i).map DomNode.content
 
@@ -83,8 +81,6 @@ theorem MirrorsList.shows : ∀ (ps : List PNode) {d : Dom}, MirrorsList d ps �
     exact ⟨Mirrors.shows p h.1, MirrorsList.shows ps h.2⟩
 end
 
-/-! ### appendChild in a loop -/
-
 theorem appendAll_spec (n : NodeId) : ∀ (cs : List PNode) (d : Dom) (nx : DomNode),
     HeapWF d → d.nodes n = some nx →
     (cs.map PNode.node).Nodup →
@@ -138,8 +134,6 @@ theorem appendAll_spec (n : NodeId) : ∀ (cs : List PNode) (d : Dom) (nx : DomN
         split
         · rw [hd1, hN]; simp [hm, hmc]
         · rw [hd1, hN]; simp [hm, hmc]
-
-/-! ### createElm -/
 
 structure Created (d : Dom) (c : PNode) (d' : Dom) : Prop where
   wf : HeapWF d'
@@ -197,12 +191,13 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
       by simp [PNode.ids, Dom.alloc_fst], ⟨_, by simpa [PNode.node, Dom.alloc_fst] using nd1, rfl⟩⟩,
       rfl⟩
   | .elem sel data ch, d, hw, hv => by
-    obtain ⟨hattrs, hch⟩ := hv
-    let tag := (Selector.parse sel).tag
+    obtain ⟨_, hattrs, hch⟩ := hv
+    let raw := (Selector.parse sel).tag
+    let tag := asciiLower raw
     obtain ⟨_, w1, ok1, nx1, nd1, fr1⟩ := createNode_spec d (.elem tag) hw
-    have w1' := Dom.log_wf (.createElement d.next tag) w1
+    have w1' := Dom.log_wf (.createElement d.next raw) w1
     obtain ⟨cl, htv⟩ := createElms_spec ch _ w1' hch
-    generalize hr : createElms ch ((d.alloc (.elem tag)).2.log (.createElement d.next tag)) = r at cl htv
+    generalize hr : createElms ch ((d.alloc (.elem tag)).2.log (.createElement d.next raw)) = r at cl htv
     obtain ⟨pch, d2⟩ := r
     simp only at cl htv
     have le2 : d.next + 1 ≤ d2.next := by have := cl.le; simpa using this
@@ -213,7 +208,7 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
     have hd : createElm (.elem sel data ch) d = (.elem sel data pch d.next,
         appendAll d.next pch (moduleCreate (.elem sel data pch d.next)
           (setSelectorAttrs d.next (Selector.parse sel) d2))) := by
-      simp only [createElm, Dom.createElement, Dom.alloc_fst, hr, tag]
+      simp only [createElm, Dom.createElement, Dom.alloc_fst, hr, tag, raw]
     obtain ⟨gs, sts, hgs⟩ := setSelectorAttrs_step d.next (Selector.parse sel) d2
     have st3 := sts.trans (moduleCreate_step sel data pch d.next _)
     generalize hd3 : moduleCreate (.elem sel data pch d.next)
@@ -307,11 +302,18 @@ theorem createElms_spec : ∀ (vs : List VNode) (d : Dom), HeapWF d → VNode.WF
     · simp only [PNode.toVNodes]; rw [tv1, tvs]
 end
 
-/-- Rendering from scratch produces `v.render`. -/
 theorem createElm_shows (v : VNode) (d : Dom) (hw : HeapWF d) (hv : v.WF) :
     Shows (createElm v d).2 (createElm v d).1.node v.render := by
   obtain ⟨c, tv⟩ := createElm_spec v d hw hv
   have := Mirrors.shows _ c.mirrors
   rwa [tv] at this
+
+/-- Mounting gives `patch` a valid input, and by `patch_correct` so does every
+patch after it. -/
+theorem createElm_valid (v : VNode) (d : Dom) (hw : HeapWF d) (hok : d.ok = true) (hv : v.WF) :
+    Valid (createElm v d).2 (createElm v d).1 := by
+  obtain ⟨c, tv⟩ := createElm_spec v d hw hv
+  exact ⟨⟨c.wf, c.mirrors, c.ids_nodup, fun i hi => (c.ids_range i hi).2, by rw [tv]; exact hv⟩,
+    by rw [c.ok, hok]⟩
 
 end Snabbdom

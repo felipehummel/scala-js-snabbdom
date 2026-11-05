@@ -57,8 +57,6 @@ theorem parentNode_eq (n : NodeId) : d.parentNode n = (d.nodes n).bind (·.paren
 
 theorem log_wf (op) (h : HeapWF d) : HeapWF (d.log op) := ⟨h.1, h.2, h.3, h.4⟩
 
-/-! ### Allocation -/
-
 theorem alloc_fst (k : Kind) : (d.alloc k).1 = d.next := rfl
 @[simp] theorem alloc_next (k : Kind) : (d.alloc k).2.next = d.next + 1 := rfl
 @[simp] theorem alloc_ok (k : Kind) : (d.alloc k).2.ok = d.ok := rfl
@@ -78,8 +76,6 @@ theorem alloc_wf (k : Kind) (h : HeapWF d) : HeapWF (d.alloc k).2 where
 theorem alloc_nodes_old (k : Kind) (m : NodeId) (hm : m < d.next) :
     (d.alloc k).2.nodes m = d.nodes m := by
   rw [alloc_nodes, ite_eq_right (by omega : ¬ _)]
-
-/-! ### Changes that keep children and parents -/
 
 theorem modify_wf (n : NodeId) (f : DomNode → DomNode)
     (hf : ∀ x, (f x).children = x.children ∧ (f x).parent = x.parent) (h : HeapWF d) :
@@ -122,12 +118,12 @@ theorem modify_wf (n : NodeId) (f : DomNode → DomNode)
 
 @[simp] theorem setAttr_nodes (n : NodeId) (k v : String) (m : NodeId) :
     (d.setAttr n k v).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = attrName k then some v else x.attrs j }) else d.nodes m := rfl
+      (fun x => { x with attrs := fun j => if j = asciiLower k then some v else x.attrs j }) else d.nodes m := rfl
 @[simp] theorem setAttr_next (n k v) : (d.setAttr n k v).next = d.next := rfl
 @[simp] theorem setAttr_ok (n k v) : (d.setAttr n k v).ok = d.ok := rfl
 @[simp] theorem removeAttr_nodes (n : NodeId) (k : String) (m : NodeId) :
     (d.removeAttr n k).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = attrName k then none else x.attrs j }) else d.nodes m := rfl
+      (fun x => { x with attrs := fun j => if j = asciiLower k then none else x.attrs j }) else d.nodes m := rfl
 @[simp] theorem removeAttr_next (n k) : (d.removeAttr n k).next = d.next := rfl
 @[simp] theorem removeAttr_ok (n k) : (d.removeAttr n k).ok = d.ok := rfl
 
@@ -135,8 +131,6 @@ theorem setAttr_wf (n k v) (h : HeapWF d) : HeapWF (d.setAttr n k v) :=
   modify_wf n _ (fun _ => ⟨rfl, rfl⟩) h
 theorem removeAttr_wf (n k) (h : HeapWF d) : HeapWF (d.removeAttr n k) :=
   modify_wf n _ (fun _ => ⟨rfl, rfl⟩) h
-
-/-! ### setText -/
 
 theorem setText_text (n : NodeId) (s t : String) (x : DomNode) (hx : d.nodes n = some x)
     (hk : x.kind = .text t) :
@@ -151,8 +145,6 @@ theorem setText_comment (n : NodeId) (s t : String) (x : DomNode) (hx : d.nodes 
   unfold setText
   simp only [get_eq, nodes_log, hx]
   cases x; simp only at hk; subst hk; rfl
-
-/-! ### Pre-insert (insertBefore / appendChild) -/
 
 /-- The precondition snabbdom always meets: `n` is detached or already a child
 of `p`, and `ref` is another child of `p`. -/
@@ -274,8 +266,6 @@ theorem preInsert_wf {p n : NodeId} {ref : Option NodeId} {px nx : DomNode}
     · split at hq
       · cases hq; exact nd n nx hn
       · exact nd q qx hq
-
-/-! ### removeChild -/
 
 theorem removeChild_nodes {p c : NodeId} {px cx : DomNode} (hp : d.nodes p = some px)
     (hc : d.nodes c = some cx) (hm : c ∈ px.children) (hne : c ≠ p) (m : NodeId) :

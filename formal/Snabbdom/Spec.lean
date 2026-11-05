@@ -27,22 +27,36 @@ mutual
 def VNode.render : VNode → DTree
   | .text s => .text s
   | .comment s => .comment s
-  | .elem sel d ch => .elem (Selector.parse sel).tag (renderAttrs sel d.attrs) (VNode.renders ch)
+  | .elem sel d ch =>
+    .elem (asciiLower (Selector.parse sel).tag) (renderAttrs sel d.attrs) (VNode.renders ch)
 def VNode.renders : List VNode → List DTree
   | [] => []
   | v :: vs => v.render :: VNode.renders vs
 end
 
-/-- Keys are unique because they come from a Scala `Map`. The other two
-clauses restrict the theorem to where the library has the property; the
-README gives a counterexample for each. -/
+/-- A conservative subset of the names that `createElement` and `setAttribute`
+accept without `InvalidCharacterError`, under both the current DOM standard and
+its older XML `Name` rule: an ASCII letter, then ASCII letters, digits, `-`,
+`_` or `.`. Having no `:`, such a key never takes the Attributes module's
+`setAttributeNS` branch. -/
+def SafeName (s : String) : Prop :=
+  match s.toList with
+  | c :: cs => c.isAlpha ∧ ∀ c ∈ cs, c.isAlphanum ∨ c = '-' ∨ c = '_' ∨ c = '.'
+  | [] => False
+
+/-- Keys are unique because they come from a Scala `Map`. Being lowercase and
+not set by the selector keep the theorem where the library has the property
+(the README gives a counterexample for each); `SafeName` keeps it where the
+library throws no DOM exception. -/
 def AttrsWF (sel : String) (a : Attrs) : Prop :=
   (a.map (·.1)).Nodup ∧
-    ∀ kv ∈ a, attrName kv.1 = kv.1 ∧ (Selector.parse sel).attr kv.1 = none
+    ∀ kv ∈ a, asciiLower kv.1 = kv.1 ∧ (Selector.parse sel).attr kv.1 = none ∧ SafeName kv.1
 
 mutual
+/-- Sufficient, not necessary: a per-vnode condition, so that it carries over
+from one patch to the next. -/
 def VNode.WF : VNode → Prop
-  | .elem sel d ch => AttrsWF sel d.attrs ∧ VNode.WFs ch
+  | .elem sel d ch => SafeName (Selector.parse sel).tag ∧ AttrsWF sel d.attrs ∧ VNode.WFs ch
   | _ => True
 def VNode.WFs : List VNode → Prop
   | [] => True
@@ -69,7 +83,7 @@ def Mirrors (d : Dom) : PNode → Prop
   | .text s n => ∃ x, d.nodes n = some x ∧ x.kind = .text s ∧ x.children = []
   | .comment s n => ∃ x, d.nodes n = some x ∧ x.kind = .comment s ∧ x.children = []
   | .elem sel data ch n =>
-    ∃ x, d.nodes n = some x ∧ x.kind = .elem (Selector.parse sel).tag ∧
+    ∃ x, d.nodes n = some x ∧ x.kind = .elem (asciiLower (Selector.parse sel).tag) ∧
       x.attrs = renderAttrs sel data.attrs ∧
       x.children = ch.map PNode.node ∧ MirrorsList d ch
 def MirrorsList (d : Dom) : List PNode → Prop
@@ -95,12 +109,17 @@ structure HeapWF (d : Dom) : Prop where
     ∃ px, d.nodes p = some px ∧ c ∈ px.children
   nodup : ∀ p px, d.nodes p = some px → px.children.Nodup
 
-structure Valid (d : Dom) (p : PNode) : Prop where
-  heap : HeapWF d
-  ok : d.ok = true
+/-- `p` agrees with the well-formed DOM `d`: what `patchVnode` assumes of its
+`old` argument. -/
+structure PPre (d : Dom) (p : PNode) : Prop where
+  wf : HeapWF d
   mirrors : Mirrors d p
   ids_nodup : p.ids.Nodup
-  ids_bound : ∀ i ∈ p.ids, i < d.next
-  wf : p.toVNode.WF
+  ids_lt : ∀ i ∈ p.ids, i < d.next
+  vnode_wf : p.toVNode.WF
+
+/-- What `patch` expects of its input: `PPre`, and no DOM exception so far. -/
+structure Valid (d : Dom) (p : PNode) : Prop extends PPre d p where
+  ok : d.ok = true
 
 end Snabbdom

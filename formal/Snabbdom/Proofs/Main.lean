@@ -55,8 +55,6 @@ theorem Mirrors.node_exists {d : Dom} {o : PNode} (h : Mirrors d o) : ∃ x, d.n
   | comment s n => obtain ⟨x, hx, _⟩ := h; exact ⟨x, hx⟩
   | elem sel data ch n => obtain ⟨x, hx, _⟩ := h; exact ⟨x, hx⟩
 
-/-! ### Replacing a child in place -/
-
 def replaceIn (a n : NodeId) (L : List NodeId) : List NodeId :=
   L.map (fun c => if c = a then n else c)
 
@@ -123,27 +121,25 @@ in the DOM, sits where `old` was, and nothing else in the document changed. -/
 theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv : v.WF) :
     Valid (patch old v d).2 (patch old v d).1 ∧ (patch old v d).1.toVNode = v ∧
     Shows (patch old v d).2 (patch old v d).1.node v.render ∧
-    -- the rest of the document is untouched...
     (∀ i, i < d.next → i ∉ old.ids → d.parentNode old.node ≠ some i →
       (patch old v d).2.nodes i = d.nodes i) ∧
-    -- ...except that the parent now has the new node where the old one was
     (∀ p px, d.parentNode old.node = some p → d.nodes p = some px →
       (patch old v d).2.nodes p =
         some { px with children := replaceIn old.node (patch old v d).1.node px.children }) ∧
     (d.parentNode old.node = none → ∃ x, (patch old v d).2.nodes (patch old v d).1.node = some x ∧
       x.parent = none) := by
-  obtain ⟨hw, hok, hr, hnd, hbd, hwf⟩ := h
+  have ⟨⟨hw, hr, hnd, hbd, _⟩, hok⟩ := h
   obtain ⟨x, hx⟩ := Mirrors.node_exists hr
   have hold : old.node ∈ old.ids := PNode.node_mem_ids old
   by_cases hs : sameVnode old v = true
   · have hpe : patch old v d = patchVnode old v d := by simp [patch, hs]
     rw [hpe]
-    obtain ⟨P, tv⟩ := patchVnode_spec v old d ⟨hw, hr, hnd, hbd, hwf⟩ hv hs
+    obtain ⟨P, tv⟩ := patchVnode_spec v old d h.toPPre hv hs
     generalize patchVnode old v d = r at P tv ⊢
     obtain ⟨nv, d'⟩ := r
     dsimp only at *
     have hle := P.le
-    refine ⟨⟨P.wf, by rw [P.ok, hok], P.mirrors, P.ids_nodup, ?_, by rw [tv]; exact hv⟩, tv,
+    refine ⟨⟨⟨P.wf, P.mirrors, P.ids_nodup, ?_, by rw [tv]; exact hv⟩, by rw [P.ok, hok]⟩, tv,
       by have := Mirrors.shows _ P.mirrors; rwa [tv] at this, ?_, ?_, ?_⟩
     · intro i hi
       rcases P.ids_range i hi with h1 | h1
@@ -177,8 +173,9 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
     have hnr := cc.ids_range nv.node (PNode.node_mem_ids nv)
     have valid1 : ∀ d2 : Dom, HeapWF d2 → d2.ok = d1.ok → d2.next = d1.next →
         (∀ i ∈ nv.ids, SameContent d1 d2 i) → Valid d2 nv := fun d2 w2 ok2 nx2 sc2 =>
-      ⟨w2, by rw [ok2, cc.ok, hok], Mirrors.frame nv cc.mirrors sc2, cc.ids_nodup,
-        fun i hi => by rw [nx2]; exact (cc.ids_range i hi).2, by rw [ctv]; exact hv⟩
+      ⟨⟨w2, Mirrors.frame nv cc.mirrors sc2, cc.ids_nodup,
+        fun i hi => by rw [nx2]; exact (cc.ids_range i hi).2, by rw [ctv]; exact hv⟩,
+        by rw [ok2, cc.ok, hok]⟩
     cases hpar : d.parentNode old.node with
     | none =>
       dsimp only
@@ -245,8 +242,6 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
         dsimp only
         rw [List.map_singleton, insert_after_replace _ _ _ (hw.nodup p px hpx) hmem hnvc]
       · intro hp'; exact (by cases hp')
-
-/-! ### Diff ≡ recreate -/
 
 mutual
 theorem Shows.unique : ∀ (t : DTree) {d : Dom} {n : NodeId} {t' : DTree}, Shows d n t → Shows d n t' → t = t'

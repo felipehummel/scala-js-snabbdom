@@ -8,14 +8,6 @@ import Snabbdom.Proofs.Children
 
 namespace Snabbdom
 
-/-- What `patchVnode` assumes about its `old` argument. -/
-structure PPre (d : Dom) (old : PNode) : Prop where
-  wf : HeapWF d
-  mirrors : Mirrors d old
-  ids_nodup : old.ids.Nodup
-  ids_lt : ∀ i ∈ old.ids, i < d.next
-  wf_old : old.toVNode.WF
-
 structure Patched (d : Dom) (old c : PNode) (d' : Dom) : Prop where
   wf : HeapWF d'
   ok : d'.ok = d.ok
@@ -273,8 +265,6 @@ theorem matchOne_spec (oldCh : List PNode) (elm n0 : NodeId) (C : List NodeId)
         have := PNode.node_inj h.ids_nodup (List.mem_of_getElem? ho') ho e
         rw [this, hokey] at hk'; cases hk'
 
-/-! ### Folding steps together -/
-
 theorem mpost_nil {oldCh elm C pos d} (hw : HeapWF d) : MPost oldCh elm C pos [] d [] d :=
   ⟨hw, rfl, Nat.le_refl _, fun _ _ _ => rfl, trivial, rfl, by simp [PNode.idsList],
     by simp [PNode.idsList], by simp, by simp, by simp, by simp⟩
@@ -286,7 +276,6 @@ theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
   have hlt := h.ids_lt; have hn0 := h.n0_le; have le1 := hs.le; have le2 := hr.le
   have nc : ∀ N i, n0 ≤ i → ¬ InClaimed oldCh N i := fun N i hi ⟨o, ho, _, hio⟩ => by
     have := hlt i (PNode.mem_ids_of_mem ho hio); omega
-  -- the head's ids are below `d1.next` and not claimed by the tail
   have hfree : ∀ i ∈ pl.child.ids, i < d1.next ∧ ¬ InClaimed oldCh (pls.map (·.child.node)) i := by
     intro i hi
     rcases hs.kind with ⟨o, ho, _, hC', _, _, hrg, _⟩ | ⟨_, _, _, hrg⟩
@@ -371,8 +360,6 @@ theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
       have hf := hfree _ (PNode.node_mem_ids _)
       exact ⟨x, by rw [hr.frame _ hf.1 hf.2]; exact hx, hxp⟩
     · exact hr.parent pl' hpl'
-
-/-! ### After the fold: place, then remove what was not reused -/
 
 theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List PNode} {vs : List VNode}
     {pls : List Placement} {d1 d2 : Dom} {ex1 : DomNode}

@@ -2,8 +2,9 @@
 
 This directory proves, in Lean 4, that snabbdom's diff is correct:
 **patching an old tree into a new vnode leaves the same DOM that rendering the
-new vnode from scratch would**, for every vnode whose attributes meet two
-conditions the library needs (see [Where the property fails](#where-the-property-fails)).
+new vnode from scratch would**, for every vnode that meets `VNode.WF`: a set of
+sufficient conditions on tag and attribute names (see
+[Where the property fails](#where-the-property-fails)).
 
 It has two parts:
 
@@ -20,7 +21,7 @@ It has two parts:
    The Lean model then replays each case and must make the same calls in the
    same order and leave the same DOM. Attribute writes do not go through
    `DomApi` (the Scala code calls `setAttribute` on the element), so they are
-   compared through the final DOM only. Last run: 10,002 cases, about 116,000
+   compared through the final DOM only. Last run: 10,004 cases, about 117,000
    DOM operations, 0 mismatches.
 
 So the guarantee is: the algorithm, as modeled, is proved correct for every
@@ -65,11 +66,20 @@ nothing outside `old`'s subtree changed, except that the parent now holds the
 new node where the old one was; and a detached root stays detached.
 
 `Valid d old` is what `patch` expects of its input: the DOM is a well-formed
-forest (`HeapWF`), no DOM exception has happened yet (`ok`), `old` agrees with
-the DOM node by node (`Mirrors`), and `old` itself meets `WF`. `v.WF` (in
-`Spec.lean`) says, for every element, that attribute keys are unique (they
-come from a Scala `Map`), are lowercase, and do not include a key the selector
-already sets.
+forest (`HeapWF`), `old` agrees with the DOM node by node (`Mirrors`), `old`
+itself meets `WF` (together, `PPre`, which is what `patchVnode` expects), and no
+DOM exception has happened yet (`ok`). `v.WF` (in `Spec.lean`) says, for every
+element, that the tag and the attribute keys are `SafeName`s, and that the keys
+are unique (they come from a Scala `Map`), are lowercase, and do not include a
+key the selector already sets.
+
+Mounting gives `patch` a `Valid` input, so the theorem covers a mount followed
+by any number of patches (`Proofs/Create.lean`):
+
+```lean
+theorem createElm_valid (v : VNode) (d : Dom) (hw : HeapWF d) (hok : d.ok = true) (hv : v.WF) :
+    Valid (createElm v d).2 (createElm v d).1
+```
 
 `createElm_shows` (`Proofs/Create.lean`) is the "from scratch" half:
 `createElm v` builds a subtree that shows `v.render`.
@@ -78,8 +88,14 @@ already sets.
 
 The library does not have the property for every input. Both cases are run
 through the model in `Snabbdom/Counterexamples.lean`, and the conformance suite
-checks that the Scala code behaves like the model on them. `VNode.WF` excludes
-them.
+checks that the Scala code behaves like the model on them.
+
+`VNode.WF` is sufficient, not necessary. Both failures need the old vnode to
+set an attribute that the new one drops (a key the selector also sets) or
+re-spells (the same name in another case). The same keys in the new vnode
+alone are harmless: patching `div#a` into `div#a` with `{id: "z"}` gives
+`id="z"` both ways. `WF` still excludes them from every vnode, because each new
+vnode is the old one of the next patch.
 
 * **An attribute the selector also sets.** `createElm` sets `id` from `#…` and
   `class` from `.…` with `setAttribute`, outside the Attributes module. The
@@ -98,11 +114,11 @@ them.
 
 | File | What it proves |
 | --- | --- |
-| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`, attribute calls (which lowercase the name). Invalid calls set `ok := false`, standing in for a DOM exception. |
-| `Spec.lean` | What "correct" means: `VNode.render`, `Shows`, `Mirrors`, `HeapWF`, `Valid`, and the input restriction `VNode.WF`. |
+| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `createElement` and the attribute calls (which lowercase the name), `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`. A misplaced `insertBefore` or `removeChild` sets `ok := false`, standing in for a DOM exception. |
+| `Spec.lean` | What "correct" means: `VNode.render`, `Shows`, `Mirrors`, `HeapWF`, `PPre`, `Valid`, and the input restriction `VNode.WF`. |
 | `Proofs/Basic.lean` | Each DOM operation keeps the heap well formed; exact effect of `insertBefore` and `removeChild`. |
 | `Proofs/Attrs.lean` | The selector's `id`/`class` and the Attributes module: after `create` the element's attributes are `renderAttrs`; after `update` they are exactly the new ones. |
-| `Proofs/Create.lean` | `createElm` builds a fresh subtree that shows `v.render`. |
+| `Proofs/Create.lean` | `createElm` builds a fresh subtree that shows `v.render` and is a `Valid` input to `patch`. |
 | `Proofs/PlaceList.lean` | The child reordering loop on plain lists: after it, the reused and new children appear in the new order. This is the hardest lemma. |
 | `Proofs/Place.lean` | The same loop on the DOM heap. |
 | `Proofs/Children.lean` | Removing unused old children; appending new ones; node identity among siblings. |
@@ -117,7 +133,21 @@ them.
 The proof says nothing about these parts of the library:
 
 * user hooks (`init`, `create`, `insert`, `prepatch`, `update`, `remove`, `destroy`, `post`) and delayed removal
-* thunks, SVG namespaces (`createElementNS`, `setAttributeNS`), and fragments
+* thunks, SVG (`createElementNS`), and fragments
+* exceptions on names. `createElement` and `setAttribute` throw
+  `InvalidCharacterError` on an invalid name, such as the empty tag that the
+  selector `#a` gives or a key with a space in it. The model accepts every
+  name, so `WF` requires `SafeName`: a conservative subset (an ASCII letter,
+  then ASCII letters, digits, `-`, `_` or `.`) that browsers accept under both
+  the current DOM standard and its older XML `Name` rule.
+* the Attributes module's `setAttributeNS` branch. A string value whose key
+  starts with `x` and has `:` at index 3 or 5 goes through `setAttributeNS`,
+  on any element, not only SVG. The model treats it as `setAttribute`. That
+  matches when the key is only ever set to strings (the conformance suite
+  checks `xml:lang` and `xlink:href`), but not otherwise: the library throws
+  `NamespaceError` on `xmlns:xlink`, and a key set to `true` (through
+  `setAttribute`) and then to a string ends with two attributes of that
+  name. `SafeName` has no `:`, so `WF` excludes all such keys.
 * the Props, Class, Style, Dataset and EventListeners modules (only Attributes is modeled)
 * the first patch of a raw DOM element, `patch(elm: dom.Element, vnode)`. It
   wraps `elm` with `emptyNodeAt`, which keeps its tag, id and classes but
@@ -148,6 +178,7 @@ matching your Chrome; point `CHROMEDRIVER` at it if it is not on `PATH`):
 CHROMEDRIVER=/path/to/chromedriver ./conformance.sh
 ```
 
-The Scala side lives in `snabbdom/src/conformance/` and is only compiled when
-`SNABBDOM_CONFORMANCE` is set (see `build.sbt`), so it does not run with the
-normal test suite.
+The Scala side lives in `snabbdom/src/conformance/`. It compiles with the
+other tests but runs only when `SNABBDOM_CONFORMANCE` is set (see `build.sbt`),
+so the normal test suite skips it. Nothing runs `lake build` or
+`conformance.sh` automatically: CI does neither.

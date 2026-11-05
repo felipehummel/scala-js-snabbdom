@@ -1,9 +1,10 @@
 /-
 Input: one JSON object per line from the Scala `ConformanceSuite`, with fields
 `old` and `new` (vnodes), `detached` (whether `old` was patched outside any
-parent), `trace` (Scala's `DomApi` calls, rendered as by `Op.render`) and `dom`
+parent), `sibling` (whether the host holds an `x-sibling` element after `old`),
+`trace` (Scala's `DomApi` calls, rendered as by `Op.render`) and `dom`
 (rendered as by `serialize`). Node ids in `trace` must be allocated as the
-model allocates them: the host is 0, then `old` in pre-order.
+model allocates them: the host is 0, then `old` in pre-order, then the sibling.
 -/
 import Snabbdom
 import Lean.Data.Json
@@ -39,7 +40,7 @@ def Op.render : Op → String
   | .setText n s => s!"st {n} {s}"
 
 partial def attrKeys : VNode → List String
-  | .elem _ d ch => d.attrs.map (attrName ·.1) ++ ch.flatMap attrKeys
+  | .elem _ d ch => d.attrs.map (asciiLower ·.1) ++ ch.flatMap attrKeys
   | _ => []
 
 /-- Same format as `ConformanceSuite.serialize` on the Scala side, which lists
@@ -66,10 +67,12 @@ def runCase (line : String) : Except String Outcome := do
   let new ← parseVNode (← j.getObjVal? "new")
   let scalaTrace ← (← (← j.getObjVal? "trace").getArr?).toList.mapM (·.getStr?)
   let detached ← j.getObjValAs? Bool "detached"
+  let sibling ← j.getObjValAs? Bool "sibling"
   let scalaDom ← j.getObjValAs? String "dom"
   let (host, d) := Dom.empty.alloc (.elem "host")
   let (pv, d) := createElm old d
   let d := if detached then d else d.appendChild host pv.node
+  let d := if sibling then (let (s, d) := d.alloc (.elem "x-sibling"); d.appendChild host s) else d
   let d := { d with trace := #[] }
   let (nv, d) := patch pv new d
   let leanTrace := d.trace.toList.map Op.render

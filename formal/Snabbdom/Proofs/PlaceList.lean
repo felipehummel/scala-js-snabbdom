@@ -27,7 +27,6 @@ def placeList (R : List NodeId) : List (Bool × NodeId) → Option NodeId → Li
     if ref = some c then placeList R rest (after c L) L
     else placeList R rest ref (insertAt c ref (L.erase c))
 
-/-- Anchored nodes of a placement list, in order. -/
 def anchoredOf : List (Bool × NodeId) → List NodeId
   | [] => []
   | (true, c) :: rest => c :: anchoredOf rest
@@ -46,8 +45,6 @@ theorem keepIn_cons_not (S L : List NodeId) (x : NodeId) (h : x ∉ S) : keepIn 
 
 theorem mem_keepIn {S L : List NodeId} {x : NodeId} : x ∈ keepIn S L ↔ x ∈ L ∧ x ∈ S := by
   simp [keepIn]
-
-/-! ### List facts -/
 
 theorem after_split (c : NodeId) (A B : List NodeId) (h : c ∉ A) :
     after c (A ++ c :: B) = B.head? := by
@@ -108,8 +105,6 @@ theorem keepIn_of_sublist (S O : List NodeId) (hs : S.Sublist O) (hO : O.Nodup) 
             · exact List.mem_cons_of_mem _)
       _ = l₁ := ih hO.2
 
-/-- If the filtered list starts with `c` and `c` is not in `B1`, then nothing
-of `B1` passes the filter. -/
 theorem keepIn_split_head (S B1 B2 T : List NodeId) (c : NodeId) (hcS : c ∈ S) (hc : c ∉ B1)
     (h : keepIn S (B1 ++ c :: B2) = c :: T) : keepIn S B1 = [] ∧ keepIn S B2 = T := by
   rw [keepIn_append, keepIn_cons_mem _ _ _ hcS] at h
@@ -146,8 +141,6 @@ theorem anchoredOf_subset : ∀ (P : List (Bool × NodeId)), ∀ x ∈ anchoredO
       rcases h with rfl | h
       · simp
       · simp [anchoredOf_subset P x h]
-
-/-! ### The invariant -/
 
 structure PInv (Q : List NodeId) (P : List (Bool × NodeId)) (L : List NodeId)
     (cur : Option NodeId) : Prop where
@@ -234,7 +227,6 @@ theorem placeList_inv : ∀ (P : List (Bool × NodeId)) (Q L : List NodeId) (cur
       rw [List.nodup_append, List.nodup_cons] at hRnd; exact hRnd.2.1.1
     have hcanch : c ∉ anchoredOf P := fun h => hcP (anchoredOf_subset P c h)
     have hanchR : ∀ x ∈ anchoredOf P, x ∈ R := fun x hx => by rw [hR]; simp [anchoredOf_subset P x hx]
-    -- the reference node is the first placed node after the cursor
     have href : nextReconciledIn R L cur = B.find? (· ∈ R) := by
       cases B with
       | nil => simp at hcur; subst hcur; simp [nextReconciledIn]

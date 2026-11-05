@@ -2,8 +2,6 @@ import Snabbdom.Proofs.Place
 
 namespace Snabbdom
 
-/-! ### Node identity among siblings -/
-
 theorem PNode.mem_ids_of_mem {L : List PNode} {o : PNode} {i : NodeId} (ho : o ∈ L) (hi : i ∈ o.ids) :
     i ∈ PNode.idsList L := PNode.mem_idsList.2 ⟨o, ho, hi⟩
 
@@ -73,8 +71,6 @@ theorem span_cons {α} (p : α → Bool) (l s r : List α) (o : α) (h : l.span 
   have := span_loop_cons p l [] s r o h
   simpa using this
 
-/-! ### What `placeList` keeps and adds -/
-
 theorem placeList_keep (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur : Option NodeId)
     (L : List NodeId) (x : NodeId), x ∈ L → x ∉ P.map (·.2) → x ∈ placeList R P cur L
   | [], _, _, _, h, _ => h
@@ -108,8 +104,6 @@ theorem placeList_sub (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur :
         · exact Or.inr List.mem_cons_self
         · exact Or.inl (List.mem_of_mem_erase h)
       · exact Or.inr (List.mem_cons_of_mem _ h)
-
-/-! ### removeAllVnodes -/
 
 theorem removeAll_cons (elm : NodeId) (o : PNode) (rest : List PNode) (d : Dom)
     (hp : d.parentNode o.node = some elm) :
@@ -177,8 +171,6 @@ theorem removeAll_spec (elm : NodeId) : ∀ (os : List PNode) (d : Dom) (ex : Do
       show (d.removeChild elm o.node).nodes m = _
       rw [hN, ite_eq_right hm1, ite_eq_right hm2.1]
 
-/-! ### createAndInsert -/
-
 theorem createAndInsert_spec (elm : NodeId) : ∀ (vs : List VNode) (d : Dom) (ex : DomNode),
     HeapWF d → d.nodes elm = some ex → elm < d.next → VNode.WFs vs →
     HeapWF (createAndInsert elm vs d).2 ∧ (createAndInsert elm vs d).2.ok = d.ok ∧
@@ -223,7 +215,6 @@ theorem createAndInsert_spec (elm : NodeId) : ∀ (vs : List VNode) (d : Dom) (e
       simp only [createAndInsert, hr1]; rw [show d1.insertBefore elm p.node none = d2 from rfl, hr2]
     rw [hd]; dsimp only
     have le1 := c1.le
-    -- d2 agrees with d1 below d1.next except at elm and p.node, whose contents are unchanged
     have sc12 : ∀ i, i ≠ elm → SameContent d1 d2 i := by
       intro i hie
       unfold SameContent; rw [hd2, hN, ite_eq_right hie]

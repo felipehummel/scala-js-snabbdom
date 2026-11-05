@@ -16,3 +16,7 @@ import Snabbdom.Proofs.Main
 /-- info: 'Snabbdom.createElm_shows' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Snabbdom.createElm_shows
+
+/-- info: 'Snabbdom.createElm_valid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Snabbdom.createElm_valid

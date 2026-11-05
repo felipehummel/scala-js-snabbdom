@@ -1,8 +1,11 @@
 /-
-The DOM operations snabbdom performs, on a heap of nodes, following the DOM
-standard for the cases snabbdom can reach. A browser would throw on an invalid
-call (`NotFoundError` from `insertBefore` or `removeChild`); the model sets
-`ok := false` instead, and the proofs show that never happens.
+The DOM operations snabbdom performs, on a heap of nodes in an HTML document,
+following the DOM standard. Where a browser would throw `NotFoundError` (from
+`insertBefore` or `removeChild`), the model sets `ok := false` instead, and the
+proofs show that never happens. The model does not check names, so it misses
+the `InvalidCharacterError` and `NamespaceError` that `createElement` and the
+attribute calls throw on some; `VNode.WF` keeps the theorems away from those
+names (see "What is not modeled" in README.md).
 
 `trace` records the structural calls in the form the conformance check compares
 with Scala's `DomApi`. Attribute writes are not in it: the Scala code makes them
@@ -51,9 +54,10 @@ def after (n : NodeId) : List NodeId → Option NodeId
   | [] => none
   | x :: xs => if x = n then xs.head? else after n xs
 
-/-- `setAttribute` and `removeAttribute` on an HTML element lowercase the name
-(ASCII only, which is what `Char.toLower` does). -/
-def attrName (k : String) : String := String.ofList (k.toList.map Char.toLower)
+/-- In an HTML document, `createElement`, `setAttribute` and `removeAttribute`
+lowercase the name they are given (ASCII only, which is what `Char.toLower`
+does). -/
+def asciiLower (k : String) : String := String.ofList (k.toList.map Char.toLower)
 
 namespace Dom
 
@@ -74,7 +78,7 @@ def alloc (d : Dom) (k : Kind) : NodeId × Dom :=
                next := n + 1 })
 
 def createElement (d : Dom) (tag : String) : NodeId × Dom :=
-  let (n, d) := d.alloc (.elem tag)
+  let (n, d) := d.alloc (.elem (asciiLower tag))
   (n, d.log (.createElement n tag))
 
 def createText (d : Dom) (s : String) : NodeId × Dom :=
@@ -116,7 +120,7 @@ def refValid (children : List NodeId) : Option NodeId → Bool
   | none => true
   | some r => decide (r ∈ children)
 
-/-- The DOM's pre-insert: validity check, then adopt (detach) and insert. -/
+/-- The DOM standard's "pre-insert", shared by `insertBefore` and `appendChild`. -/
 def preInsert (d : Dom) (p n : NodeId) (ref : Option NodeId) : Dom :=
   match d.get p, d.get n with
   | some px, some _ =>
@@ -153,10 +157,10 @@ def setText (d : Dom) (n : NodeId) (s : String) : Dom :=
   | _ => d.fail
 
 def setAttr (d : Dom) (n : NodeId) (k v : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = attrName k then some v else x.attrs j }
+  d.modify n fun x => { x with attrs := fun j => if j = asciiLower k then some v else x.attrs j }
 
 def removeAttr (d : Dom) (n : NodeId) (k : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = attrName k then none else x.attrs j }
+  d.modify n fun x => { x with attrs := fun j => if j = asciiLower k then none else x.attrs j }
 
 end Dom
 

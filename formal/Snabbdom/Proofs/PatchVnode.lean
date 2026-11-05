@@ -68,8 +68,8 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
         (patchVnode (.elem osel odata oldCh elm) (.elem osel data ch) d).1
         (patchVnode (.elem osel odata oldCh elm) (.elem osel data ch) d).2 ∧
       (patchVnode (.elem osel odata oldCh elm) (.elem osel data ch) d).1.toVNode = .elem osel data ch := by
-  obtain ⟨hattrs, hch⟩ := hv
-  have hwo := h.wf_old
+  obtain ⟨_, hattrs, hch⟩ := hv
+  have hwo := h.vnode_wf
   simp only [PNode.toVNode, VNode.WF] at hwo
   obtain ⟨ex, hex, hk, hea, hec, hrl⟩ := h.mirrors
   obtain ⟨g, hst, hg⟩ := moduleUpdate_step osel odata oldCh elm osel data ch d
@@ -83,7 +83,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
   rw [patchVnode, ite_eq_right heq]
   generalize hd1 : moduleUpdate (.elem osel odata oldCh elm) (.elem osel data ch) d = d1 at hst
   have he1 : d1.nodes elm = some { ex with attrs := renderAttrs osel data.attrs } := by
-    rw [hst.nodes, ite_eq_left rfl, hex]; simp [hea, hg hwo.1 hattrs]
+    rw [hst.nodes, ite_eq_left rfl, hex]; simp [hea, hg hwo.2.1 hattrs]
   have fr1 : ∀ i, i ≠ elm → d1.nodes i = d.nodes i := fun i hi => hst.other i hi
   have w1 := hst.wf h.wf
   have rl1 : MirrorsList d1 oldCh := MirrorsList.frame oldCh hrl
@@ -142,7 +142,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       · rw [ite_eq_left hsame]
         have hpre : MPre (o :: os) elm d1.next [] (keyedOld (o :: os)) 0 d1 := by
           refine ⟨w1, hnd.2, fun i hi => by rw [nx1]; exact hidl i hi, by rw [nx1]; exact helm, hnd.1,
-            Nat.le_refl _, fun o' ho' => WFs_mem hwo.2 ho', ?_, ?_, ?_, ?_⟩
+            Nat.le_refl _, fun o' ho' => WFs_mem hwo.2.2 ho', ?_, ?_, ?_, ?_⟩
           · intro o' ho' _
             refine ⟨MirrorsList.mem rl1 ho', ?_⟩
             have hm : o'.node ∈ ex.children := by rw [hec]; exact List.mem_map_of_mem ho'

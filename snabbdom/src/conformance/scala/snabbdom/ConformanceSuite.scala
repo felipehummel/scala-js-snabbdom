@@ -108,13 +108,24 @@ class ConformanceSuite extends munit.FunSuite {
     * comments and text nodes. Attributes include the `id` and `class` a
     * selector also sets, and names in upper case, which the DOM lowercases:
     * both are outside the proved theorem but must still match the model.
+    * Selectors in upper case check that the model lowercases tags too.
     */
   final class CaseGen(seed: Long) {
     private val r = new scala.util.Random(seed)
     def coin(num: Int, den: Int): Boolean = r.nextInt(den) < num
     private def pick[A](xs: Vector[A]): A = xs(r.nextInt(xs.length))
     private val sels =
-      Vector("div", "span", "p", "div#a", "div.x", "p#b.x.y", "span.x")
+      Vector(
+        "div",
+        "span",
+        "p",
+        "div#a",
+        "div.x",
+        "p#b.x.y",
+        "span.x",
+        "DIV",
+        "Span.x"
+      )
     private val keys = Vector("a", "b", "c")
     // One spelling per name within a map: a Scala Map holding both `title`
     // and `TITLE` would set the same DOM attribute twice, in an iteration
@@ -223,11 +234,16 @@ class ConformanceSuite extends munit.FunSuite {
     )
 
   /** The library counterexamples in formal/Snabbdom/Counterexamples.lean, so
-    * the model is checked against Scala on exactly those inputs.
+    * the model is checked against Scala on exactly those inputs, and keys that
+    * take the Attributes module's `setAttributeNS` branch, which the model
+    * treats as `setAttribute`.
     */
   private val fixedCases: List[(VNode, VNode)] = List(
     div("div#a", "id" -> "z") -> div("div#a"),
-    div("div", "TITLE" -> "x") -> div("div", "title" -> "y")
+    div("div", "TITLE" -> "x") -> div("div", "title" -> "y"),
+    div("div", "xml:lang" -> "en") ->
+      div("div", "xml:lang" -> "fr", "xlink:href" -> "#a"),
+    div("div", "xlink:href" -> "#a") -> div("span", "xml:lang" -> "en")
   )
 
   test("emit conformance cases") {
@@ -235,12 +251,15 @@ class ConformanceSuite extends munit.FunSuite {
     val randomCases = (0 until nCases).iterator.map { _ =>
       val old = gen.root(3)
       val neu = if (gen.coin(2, 3)) gen.mutate(old, 3) else gen.root(3)
-      (old, neu, gen.coin(1, 5))
+      val detached = gen.coin(1, 5)
+      // a sibling after `old`, so that replacing it inserts before a node
+      val sibling = !detached && gen.coin(1, 2)
+      (old, neu, detached, sibling)
     }
     val cases = fixedCases.iterator.map { case (o, n) =>
-      (o, n, false)
+      (o, n, false, true)
     } ++ randomCases
-    cases.foreach { case (old, neu, detached) =>
+    cases.foreach { case (old, neu, detached, sibling) =>
       val api = new RecordingDomApi(DomApi.apply)
       val patch = init(Seq(Attributes.module), Some(api))
       val host = dom.document.createElement("div")
@@ -248,9 +267,13 @@ class ConformanceSuite extends munit.FunSuite {
       host.appendChild(placeholder)
       val pv1 = patch(placeholder, old)
       if (detached) host.removeChild(pv1.node)
+      val sib =
+        if (sibling)
+          Some(host.appendChild(dom.document.createElement("x-sibling")))
+        else None
 
-      // ids: host is 0, the old tree is numbered in pre-order, as createElm
-      // allocates them in the model
+      // ids in the order the model allocates them: host is 0, then the old
+      // tree in pre-order (as createElm allocates), then the sibling
       api.ids(host) = 0
       var next = 1
       def number(p: PatchedVNode): Unit = {
@@ -262,6 +285,9 @@ class ConformanceSuite extends munit.FunSuite {
         }
       }
       number(pv1)
+      sib.foreach { s =>
+        api.ids(s) = next; next += 1
+      }
       api.nextId = next
       api.recording = true
       val pv2 = patch(pv1, neu)
@@ -274,7 +300,7 @@ class ConformanceSuite extends munit.FunSuite {
       println(
         s"""CONFORMANCE {"old":${json(old)},"new":${json(
             neu
-          )},"detached":$detached,"trace":[$trace],"dom":${str(
+          )},"detached":$detached,"sibling":$sibling,"trace":[$trace],"dom":${str(
             domStr.replace("\"", "\\\"")
           )}}"""
       )

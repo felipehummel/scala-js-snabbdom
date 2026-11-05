@@ -1,7 +1,7 @@
 /-
 A transcription of `snabbdom/src/main/scala/snabbdom/init.scala` and
-`modules/Attributes.scala`. Each definition is named after the Scala function it
-mirrors and makes its DOM calls in the same order. What is left out is listed in
+`modules/Attributes.scala`. Each definition mirrors a Scala function or match
+case, named in its name or docstring, and makes its DOM calls in the same order. What is left out is listed in
 `formal/README.md`. No modeled module has a `remove` hook, so removal is
 immediate.
 -/
@@ -114,8 +114,6 @@ def moduleUpdate (old : PNode) (v : VNode) (d : Dom) : Dom :=
   | .elem _ a _ n, .elem _ b _ => if a.attrs ≠ b.attrs then updateAttrs n a.attrs b.attrs d else d
   | _, _ => d
 
-/-! ## createElm -/
-
 /-- `createElm`'s split of a selector such as `div#app.a.b` into the tag, the
 `id` and the `class` it sets. Transcribed index for index, quirks included:
 `div.a#b` gives tag `div.a` and id `b`. -/
@@ -177,8 +175,6 @@ def createElms : List VNode → Dom → List PNode × Dom
     (p :: ps, d)
 end
 
-/-! ## removeAllVnodes -/
-
 def removeAllVnodes (parentElm : NodeId) : List PNode → Dom → Dom
   | [], d => d
   | .elem _ _ _ n :: rest, d =>
@@ -189,8 +185,6 @@ def removeAllVnodes (parentElm : NodeId) : List PNode → Dom → Dom
       | none => d
     removeAllVnodes parentElm rest d
   | o :: rest, d => removeAllVnodes parentElm rest (d.removeChild parentElm o.node)
-
-/-! ## updateChildren -/
 
 inductive Placement where
   /-- unkeyed match, never moved -/
@@ -240,8 +234,6 @@ def createAndInsert (elm : NodeId) : List VNode → Dom → List PNode × Dom
     let d := d.insertBefore elm p.node none
     let (ps, d) := createAndInsert elm vs d
     (p :: ps, d)
-
-/-! ## patchVnode and the matching fold of updateChildren -/
 
 /-- One step of the `foldLeft` over the new children: find the old child that
 `v` reuses, or create a fresh one. `pv o d` patches `o` into `v`. `pos` is the
@@ -298,8 +290,6 @@ def matchChildren (oldCh : List PNode) (byKey : String → List PNode) (pos : Na
     let (pls, d) := matchChildren oldCh byKey' (pos + 1) vs d
     (pl :: pls, d)
 end
-
-/-! ## patch -/
 
 def patch (old : PNode) (v : VNode) (d : Dom) : PNode × Dom :=
   if sameVnode old v then patchVnode old v d
