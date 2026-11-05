@@ -64,7 +64,12 @@ lazy val munitVersion = "1.0.0-M11"
 lazy val originalAuthorHeader =
   headerLicense := Some(HeaderLicense.ALv2("2022", "buntec"))
 
-lazy val root = tlCrossRootProject.aggregate(snabbdom, examples, benchmarks)
+lazy val root = tlCrossRootProject.aggregate(
+  snabbdom,
+  examples,
+  benchmarks,
+  jsFrameworkBenchmark
+)
 
 lazy val snabbdom = (project
   .in(file("snabbdom")))
@@ -106,5 +111,14 @@ lazy val benchmarks = (project
     originalAuthorHeader,
     name := "scala-js-snabbdom-benchmarks",
     scalaJSUseMainModuleInitializer := false
+  )
+  .dependsOn(snabbdom)
+
+lazy val jsFrameworkBenchmark = (project
+  .in(file("benchmarks/js-framework-benchmark/scala")))
+  .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
+  .settings(
+    name := "scala-js-snabbdom-js-framework-benchmark",
+    scalaJSUseMainModuleInitializer := true
   )
   .dependsOn(snabbdom)

@@ -73,7 +73,7 @@ object Dataset {
     val d = elm.dataset
     val dataset = vnode.data.dataset
 
-    dataset.foreach { case (key, value) =>
+    dataset.foreachEntry { (key, value) =>
       if (!js.isUndefined(d)) { // TODO: does this make sense?
         d += (key -> value)
       } else {
@@ -97,7 +97,7 @@ object Dataset {
     val dataset = vnode.data.dataset
     val d = elm.dataset
 
-    oldDataset.foreach { case (key, _) =>
+    oldDataset.foreachEntry { (key, _) =>
       dataset.get(key) match {
         case None =>
           if (!js.isUndefined(d)) { // TODO: does this make sense?
@@ -111,7 +111,7 @@ object Dataset {
       }
     }
 
-    dataset.foreach { case (key, value) =>
+    dataset.foreachEntry { (key, value) =>
       if (oldDataset.get(key).forall(_ != value)) {
         if (!js.isUndefined(d)) { // TODO: does this make sense?
           d += (key -> value)

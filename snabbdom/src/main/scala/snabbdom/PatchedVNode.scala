@@ -39,19 +39,77 @@ object PatchedVNode {
       node: dom.Element
   ) extends PatchedVNode {
 
-    private def handleEvent(event: dom.Event): Unit = {
+    private[snabbdom] def handleEvent(event: dom.Event): Unit = {
       val name = event.`type`
       data.on.get(name).foreach { handler =>
         handler.cbs.foreach(_(event, this.toVNode))
       }
     }
 
-    private[snabbdom] lazy val listener: js.Function1[dom.Event, Unit] =
-      handleEvent _
+    // A DOM listener can only be removed with the function that was added,
+    // so the same listener must survive patches while `on` stays non-empty.
+    private[snabbdom] var listener: Listener = null
 
-    override def toVNode: VNode =
-      VNode.Element(sel, data, children.map(_.toVNode))
+    // When non-null, equal to the conversion `toVNode` would build.
+    private[PatchedVNode] var vnodeCache: VNode = null
 
+    override def toVNode: VNode = {
+      if (vnodeCache == null) {
+        vnodeCache = VNode.Element(sel, data, children.map(_.toVNode))
+      }
+      vnodeCache
+    }
+
+  }
+
+  private[snabbdom] def elementFrom(
+      vnode: VNode.Element,
+      children: List[PatchedVNode],
+      node: dom.Element
+  ): Element = {
+    val element = Element(vnode.sel, vnode.data, children, node)
+    if (childrenUnchanged(children, vnode.children)) element.vnodeCache = vnode
+    element
+  }
+
+  /** Same answer as `vnode == patched.toVNode`. */
+  private[snabbdom] def isUnchanged(
+      patched: PatchedVNode,
+      vnode: VNode
+  ): Boolean =
+    (patched, vnode) match {
+      case (e: Element, v: VNode.Element) =>
+        val cached = e.vnodeCache
+        val unchanged =
+          if (cached != null) v == cached
+          else
+            e.sel == v.sel && e.data == v.data &&
+            childrenUnchanged(e.children, v.children)
+        // `v` equals the conversion, so it can stand in for it, and asking
+        // again with the same `v` is then a reference check.
+        if (unchanged) e.vnodeCache = v
+        unchanged
+      case (Text(content, _), VNode.Text(other))       => content == other
+      case (Comment(content, _), VNode.Comment(other)) => content == other
+      case _                                           => false
+    }
+
+  private[snabbdom] def childrenUnchanged(
+      patched: List[PatchedVNode],
+      vnodes: List[VNode]
+  ): Boolean = {
+    var ps = patched
+    var vs = vnodes
+    while (ps.nonEmpty && vs.nonEmpty && isUnchanged(ps.head, vs.head)) {
+      ps = ps.tail
+      vs = vs.tail
+    }
+    ps.isEmpty && vs.isEmpty
+  }
+
+  private[snabbdom] final class Listener(var vnode: Element) {
+    val fn: js.Function1[dom.Event, Unit] =
+      (event: dom.Event) => vnode.handleEvent(event)
   }
 
   def element(

@@ -75,23 +75,25 @@ object Attributes {
 
   private def setAttrs(vnode: PatchedVNode.Element): Unit = {
     val elm = vnode.node
-    vnode.data.attrs.foreach {
-      case (key, AttrValue.BooleanAttrValue(value)) =>
-        if (value) {
-          elm.setAttribute(key, "")
-        } else {
-          elm.removeAttribute(key)
-        }
-      case (key, AttrValue.StringAttrValue(value)) =>
-        if (key.charAt(0) != 'x') {
-          elm.setAttribute(key, value)
-        } else if (key.length > 3 && key.charAt(3) == ':') {
-          elm.setAttributeNS(xmlNS, key, value)
-        } else if (key.length > 5 && key.charAt(5) == ':') {
-          elm.setAttributeNS(xlinkNS, key, value)
-        } else {
-          elm.setAttribute(key, value)
-        }
+    vnode.data.attrs.foreachEntry { (key, attr) =>
+      attr match {
+        case AttrValue.BooleanAttrValue(value) =>
+          if (value) {
+            elm.setAttribute(key, "")
+          } else {
+            elm.removeAttribute(key)
+          }
+        case AttrValue.StringAttrValue(value) =>
+          if (key.charAt(0) != 'x') {
+            elm.setAttribute(key, value)
+          } else if (key.length > 3 && key.charAt(3) == ':') {
+            elm.setAttributeNS(xmlNS, key, value)
+          } else if (key.length > 5 && key.charAt(5) == ':') {
+            elm.setAttributeNS(xlinkNS, key, value)
+          } else {
+            elm.setAttribute(key, value)
+          }
+      }
     }
   }
 
@@ -104,7 +106,7 @@ object Attributes {
     val oldAttrs = oldVnode.data.attrs
     val attrs = vnode.data.attrs
 
-    attrs.foreach { case (key, cur) =>
+    attrs.foreachEntry { (key, cur) =>
       if (oldAttrs.get(key).forall(_ != cur)) {
         cur match {
           case AttrValue.BooleanAttrValue(value) =>
@@ -127,7 +129,7 @@ object Attributes {
       }
     }
 
-    oldAttrs.foreach { case (key, _) =>
+    oldAttrs.foreachEntry { (key, _) =>
       if (!attrs.contains(key)) {
         elm.removeAttribute(key)
       }

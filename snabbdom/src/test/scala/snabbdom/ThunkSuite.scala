@@ -132,6 +132,44 @@ class ThunkSuite extends BaseSuite {
     assertEquals(called, 2)
   }
 
+  vnode0.test("keeps keyed rows whose render function sets no key") { vnode0 =>
+    var called = 0
+    val row = (arg: Any) => {
+      called += 1
+      h("li", arg.toString)
+    }
+    def list(rows: List[(String, String)]) =
+      h("ul", rows.map { case (key, label) => thunk("li", key, row, label) })
+    val vnode1p = patch(vnode0, list(List("1" -> "a", "2" -> "b", "3" -> "c")))
+    val before = vnode1p.node.childNodes.toList
+    val vnode2p = patch(vnode1p, list(List("1" -> "a", "2" -> "B", "3" -> "c")))
+    val updated = vnode2p.node.childNodes.toList
+    assertEquals(updated.map(_.textContent), List("a", "B", "c"))
+    assert(updated(1) eq before(1))
+    assertEquals(called, 4)
+    val vnode3p = patch(vnode2p, list(List("3" -> "c", "1" -> "a", "2" -> "B")))
+    val after = vnode3p.node.childNodes.toList
+    assertEquals(after.map(_.textContent), List("c", "a", "B"))
+    assert(after(0) eq before(2))
+    assert(after(1) eq before(0))
+    assert(after(2) eq before(1))
+    assertEquals(called, 4)
+  }
+
+  vnode0.test("keeps an unkeyed thunk whose render function sets a key") {
+    vnode0 =>
+      var called = 0
+      val row = (arg: Any) => {
+        called += 1
+        h("li", VNodeData(key = Some("k")), arg.toString)
+      }
+      val vnode1p = patch(vnode0, h("ul", List(thunk("li", row, 1))))
+      val before = vnode1p.node.firstChild
+      val vnode2p = patch(vnode1p, h("ul", List(thunk("li", row, 1))))
+      assert(vnode2p.node.firstChild eq before)
+      assertEquals(called, 1)
+  }
+
   vnode0.test("renders correctly") { vnode0 =>
     var called = 0
     val numberInSpan = (arg: Any) => {

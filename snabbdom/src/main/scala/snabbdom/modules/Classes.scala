@@ -65,7 +65,7 @@ object Classes {
 
   private def setClasses(vnode: PatchedVNode.Element): Unit = {
     val elm = vnode.node
-    vnode.data.classes.foreach { case (name, cur) =>
+    vnode.data.classes.foreachEntry { (name, cur) =>
       if (cur) {
         elm.classList.add(name)
       } else {
@@ -82,12 +82,12 @@ object Classes {
     val oldClasses = oldVnode.data.classes
     val classes = vnode.data.classes
 
-    oldClasses.foreach { case (name, flag) =>
+    oldClasses.foreachEntry { (name, flag) =>
       if (flag && !classes.contains(name)) {
         elm.classList.remove(name)
       }
     }
-    classes.foreach { case (name, cur) =>
+    classes.foreachEntry { (name, cur) =>
       if (oldClasses.get(name).forall(_ != cur)) {
         if (cur) {
           elm.classList.add(name)
