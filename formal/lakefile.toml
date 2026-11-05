@@ -1,0 +1,9 @@
+name = "snabbdom-spec"
+defaultTargets = ["Snabbdom", "conform"]
+
+[[lean_lib]]
+name = "Snabbdom"
+
+[[lean_exe]]
+name = "conform"
+root = "Conform"

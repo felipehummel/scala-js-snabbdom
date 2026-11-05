@@ -82,7 +82,16 @@ lazy val snabbdom = (project
       "org.scalameta" %%% "munit" % munitVersion % Test,
       "org.scalacheck" %%% "scalacheck" % scalacheckVersion % Test,
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.0.0" % Test
-    )
+    ),
+    // The conformance suite always compiles, so that CI keeps it building, but
+    // runs only from formal/conformance.sh, which sets SNABBDOM_CONFORMANCE:
+    // it is too slow for the normal test run.
+    Test / unmanagedSourceDirectories +=
+      baseDirectory.value / "src" / "conformance" / "scala",
+    Test / testOptions ++= {
+      if (sys.env.contains("SNABBDOM_CONFORMANCE")) Nil
+      else Seq(Tests.Exclude(Seq("snabbdom.ConformanceSuite")))
+    }
   )
 
 lazy val examples = (project
