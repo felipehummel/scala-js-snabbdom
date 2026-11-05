@@ -38,6 +38,7 @@
 
 package snabbdom.modules
 
+import org.scalajs.dom
 import snabbdom._
 
 object Attributes {
@@ -70,31 +71,61 @@ object Attributes {
     })
   )
 
+  private val htmlNS = "http://www.w3.org/1999/xhtml"
   private val xlinkNS = "http://www.w3.org/1999/xlink"
   private val xmlNS = "http://www.w3.org/XML/1998/namespace"
+  private val xmlnsNS = "http://www.w3.org/2000/xmlns/"
+
+  // The namespace a key's prefix names. Every write and removal of the key
+  // goes through it, so the key never becomes two attributes.
+  private def namespaceOf(key: String): Option[String] =
+    if (key.isEmpty || key.charAt(0) != 'x') None
+    else if (key.startsWith("xml:")) Some(xmlNS)
+    else if (key.startsWith("xmlns:")) Some(xmlnsNS)
+    else if (key.startsWith("xlink:")) Some(xlinkNS)
+    else None
+
+  private def set(elm: dom.Element, key: String, value: String): Unit =
+    namespaceOf(key) match {
+      case None     => elm.setAttribute(key, value)
+      case Some(ns) => elm.setAttributeNS(ns, key, value)
+    }
+
+  // An attribute parsed from HTML markup, such as `xml:lang` on an element
+  // hydrated by `toVNode`, has no namespace even with a prefix, so this does
+  // not remove it.
+  private def remove(elm: dom.Element, key: String): Unit =
+    namespaceOf(key) match {
+      case None => elm.removeAttribute(key)
+      case Some(ns) =>
+        elm.removeAttributeNS(ns, key.substring(key.indexOf(':') + 1))
+    }
+
+  private def write(elm: dom.Element, key: String, attr: AttrValue): Unit =
+    attr match {
+      case AttrValue.BooleanAttrValue(true)  => set(elm, key, "")
+      case AttrValue.BooleanAttrValue(false) => remove(elm, key)
+      case AttrValue.StringAttrValue(value)  => set(elm, key, value)
+    }
+
+  // On an HTML element the DOM lowercases the names `setAttribute` and
+  // `removeAttribute` take, in ASCII only.
+  private def asciiLower(s: String): String =
+    s.map(c => if (c >= 'A' && c <= 'Z') (c + 32).toChar else c)
+
+  // A key the new vnode drops goes back to what `createElm` leaves: the
+  // selector's `id` or classes, if it sets them.
+  private def drop(elm: dom.Element, sel: String, key: String): Unit = {
+    val name = if (elm.namespaceURI == htmlNS) asciiLower(key) else key
+    Selector.attr(sel, name) match {
+      case Some(value) => elm.setAttribute(key, value)
+      case None        => remove(elm, key)
+    }
+  }
 
   private def setAttrs(vnode: PatchedVNode.Element): Unit = {
     val elm = vnode.node
-    vnode.data.attrs.foreachEntry { (key, attr) =>
-      attr match {
-        case AttrValue.BooleanAttrValue(value) =>
-          if (value) {
-            elm.setAttribute(key, "")
-          } else {
-            elm.removeAttribute(key)
-          }
-        case AttrValue.StringAttrValue(value) =>
-          if (key.charAt(0) != 'x') {
-            elm.setAttribute(key, value)
-          } else if (key.length > 3 && key.charAt(3) == ':') {
-            elm.setAttributeNS(xmlNS, key, value)
-          } else if (key.length > 5 && key.charAt(5) == ':') {
-            elm.setAttributeNS(xlinkNS, key, value)
-          } else {
-            elm.setAttribute(key, value)
-          }
-      }
-    }
+    vnode.data.attrs.foreachEntry((key, attr) => write(elm, key, attr))
   }
 
   private def updateAttrs(
@@ -106,32 +137,17 @@ object Attributes {
     val oldAttrs = oldVnode.data.attrs
     val attrs = vnode.data.attrs
 
-    attrs.foreachEntry { (key, cur) =>
-      if (oldAttrs.get(key).forall(_ != cur)) {
-        cur match {
-          case AttrValue.BooleanAttrValue(value) =>
-            if (value) {
-              elm.setAttribute(key, "")
-            } else {
-              elm.removeAttribute(key)
-            }
-          case AttrValue.StringAttrValue(value) =>
-            if (key.charAt(0) != 'x') {
-              elm.setAttribute(key, value)
-            } else if (key.length > 3 && key.charAt(3) == ':') {
-              elm.setAttributeNS(xmlNS, key, value)
-            } else if (key.length > 5 && key.charAt(5) == ':') {
-              elm.setAttributeNS(xlinkNS, key, value)
-            } else {
-              elm.setAttribute(key, value)
-            }
-        }
+    // Removals first: an old key respelled in another case names the same
+    // DOM attribute as the new spelling, which must be the one left set.
+    oldAttrs.foreachEntry { (key, _) =>
+      if (!attrs.contains(key)) {
+        drop(elm, vnode.sel, key)
       }
     }
 
-    oldAttrs.foreachEntry { (key, _) =>
-      if (!attrs.contains(key)) {
-        elm.removeAttribute(key)
+    attrs.foreachEntry { (key, cur) =>
+      if (oldAttrs.get(key).forall(_ != cur)) {
+        write(elm, key, cur)
       }
     }
   }

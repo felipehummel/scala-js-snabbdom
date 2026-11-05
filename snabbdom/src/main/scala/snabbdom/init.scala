@@ -125,35 +125,20 @@ object init {
           )
 
         case vnode @ VNode.Element(sel, data, children) =>
-          val hashIdx = sel.indexOf("#")
-          val dotIdx = sel.indexOf(".", hashIdx)
-          val hash = if (hashIdx > 0) hashIdx else sel.length
-          val dot = if (dotIdx > 0) dotIdx else sel.length
-          val tag = if (hashIdx != -1 || dotIdx != -1) {
-            sel.substring(0, math.min(hash, dot))
-          } else {
-            sel
-          }
+          val selector = Selector.parse(sel)
           val elm = data.ns match {
             case Some(ns) =>
-              api.createElementNS(ns, tag) // TODO what about data?
+              api.createElementNS(ns, selector.tag) // TODO what about data?
             case None =>
-              api.createElement(tag) // TODO what about data argument?
+              api.createElement(selector.tag) // TODO what about data argument?
           }
           val pvnode0 = PatchedVNode.elementFrom(
             vnode,
             children.map(createElm(_, insertedVNodeQueue)),
             elm
           )
-          if (hash < dot) elm.setAttribute("id", sel.substring(hash + 1, dot))
-          if (dotIdx > 0) {
-            val classes = sel.substring(dot + 1)
-            elm.setAttribute(
-              "class",
-              if (classes.indexOf('.') < 0) classes
-              else classes.replace('.', ' ')
-            )
-          }
+          selector.id.foreach(elm.setAttribute("id", _))
+          selector.classes.foreach(elm.setAttribute("class", _))
 
           cbs.create.foreach(hook => hook(pvnode0))
 

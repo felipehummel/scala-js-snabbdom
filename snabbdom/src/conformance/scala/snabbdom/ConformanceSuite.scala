@@ -106,9 +106,9 @@ class ConformanceSuite extends munit.FunSuite {
   /** Small alphabets, so that keys, tags and texts collide often: duplicate
     * keys among siblings, keyed and unkeyed siblings mixed, tag changes,
     * comments and text nodes. Attributes include the `id` and `class` a
-    * selector also sets, and names in upper case, which the DOM lowercases:
-    * both are outside the proved theorem but must still match the model.
-    * Selectors in upper case check that the model lowercases tags too.
+    * selector also sets, names in upper case, which the DOM lowercases, and
+    * namespaced names, which it does not. Selectors in upper case check that
+    * the model lowercases tags too.
     *
     * A `wide` generator gives up to 12 siblings, mostly keyed elements over
     * more keys, so that `longestIncreasingRun` and `placeWithFewestMoves` also
@@ -138,7 +138,8 @@ class ConformanceSuite extends munit.FunSuite {
     // One spelling per name within a map: a Scala Map holding both `title`
     // and `TITLE` would set the same DOM attribute twice, in an iteration
     // order the JSON (sorted by key) does not carry.
-    private val attrKeys = Vector("title", "lang", "dir", "id", "class")
+    private val attrKeys =
+      Vector("title", "lang", "dir", "id", "class", "xlink:href", "xmlns:xlink")
 
     private def attrs(): Map[String, AttrValue] =
       attrKeys
@@ -243,17 +244,18 @@ class ConformanceSuite extends munit.FunSuite {
       Nil
     )
 
-  /** The library counterexamples in formal/Snabbdom/Counterexamples.lean, so
-    * the model is checked against Scala on exactly those inputs, and keys that
-    * take the Attributes module's `setAttributeNS` branch, which the model
-    * treats as `setAttribute`.
+  /** Inputs where an Attributes update can diverge from rendering from scratch,
+    * or throw: a removed key the selector also sets, a key respelled in another
+    * case, and namespaced keys.
     */
   private val fixedCases: List[(VNode, VNode)] = List(
     div("div#a", "id" -> "z") -> div("div#a"),
     div("div", "TITLE" -> "x") -> div("div", "title" -> "y"),
     div("div", "xml:lang" -> "en") ->
       div("div", "xml:lang" -> "fr", "xlink:href" -> "#a"),
-    div("div", "xlink:href" -> "#a") -> div("span", "xml:lang" -> "en")
+    div("div", "xlink:href" -> "#a") -> div("span", "xml:lang" -> "en"),
+    div("div", "xmlns:xlink" -> "http://www.w3.org/1999/xlink") ->
+      div("div", "xlink:href" -> "#a")
   )
 
   test("emit conformance cases") {

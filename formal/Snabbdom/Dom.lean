@@ -3,9 +3,9 @@ The DOM operations snabbdom performs, on a heap of nodes in an HTML document,
 following the DOM standard. Where a browser would throw `NotFoundError` (from
 `insertBefore` or `removeChild`), the model sets `ok := false` instead, and the
 proofs show that never happens. The model does not check names, so it misses
-the `InvalidCharacterError` and `NamespaceError` that `createElement` and the
-attribute calls throw on some; `VNode.WF` keeps the theorems away from those
-names (see "What is not modeled" in README.md).
+the `InvalidCharacterError` that `createElement` and the attribute calls throw
+on some; `VNode.WF` keeps the theorems away from those names (see "What is not
+modeled" in README.md).
 
 `trace` records the structural calls in the form the conformance check compares
 with Scala's `DomApi`. Attribute writes are not in it: the Scala code makes them
@@ -161,6 +161,18 @@ def setAttr (d : Dom) (n : NodeId) (k v : String) : Dom :=
 
 def removeAttr (d : Dom) (n : NodeId) (k : String) : Dom :=
   d.modify n fun x => { x with attrs := fun j => if j = asciiLower k then none else x.attrs j }
+
+/-- `setAttributeNS`, which does not lowercase. The model keys a namespaced
+attribute by its qualified name `k`; the DOM keys it by namespace and local
+name, which is the same thing as long as each prefix comes with one namespace,
+as in the Attributes module. -/
+def setAttrNS (d : Dom) (n : NodeId) (k v : String) : Dom :=
+  d.modify n fun x => { x with attrs := fun j => if j = k then some v else x.attrs j }
+
+/-- `removeAttributeNS(ns, local name of k)`; the model keys the attribute by its
+qualified name (see `setAttrNS`). -/
+def removeAttrNS (d : Dom) (n : NodeId) (k : String) : Dom :=
+  d.modify n fun x => { x with attrs := fun j => if j = k then none else x.attrs j }
 
 end Dom
 
