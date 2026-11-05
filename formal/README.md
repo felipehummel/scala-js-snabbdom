@@ -16,12 +16,13 @@ It has two parts:
    `Snabbdom/Axioms.lean` checks this on every `lake build`.
 2. **A bridge from the model to the Scala code.** Lean cannot read Scala, so
    `conformance.sh` runs the real library in headless Chrome on 10,000 random
-   `(old, new)` pairs plus the two counterexamples below. A recording `DomApi`
-   logs every structural DOM call (create, insert, append, remove, set text).
-   The Lean model then replays each case and must make the same calls in the
-   same order and leave the same DOM. Attribute writes do not go through
+   `(old, new)` pairs (a tenth of them with up to 12 mostly keyed siblings, for
+   `placeWithFewestMoves`) plus the two counterexamples below. A recording
+   `DomApi` logs every structural DOM call (create, insert, append, remove, set
+   text). The Lean model then replays each case and must make the same calls
+   in the same order and leave the same DOM. Attribute writes do not go through
    `DomApi` (the Scala code calls `setAttribute` on the element), so they are
-   compared through the final DOM only. Last run: 10,004 cases, about 117,000
+   compared through the final DOM only. Last run: 10,004 cases, about 150,000
    DOM operations, 0 mismatches.
 
 So the guarantee is: the algorithm, as modeled, is proved correct for every

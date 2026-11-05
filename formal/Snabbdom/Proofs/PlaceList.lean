@@ -1,5 +1,5 @@
 /-
-`place` only reads and rewrites the parent's child list, so its ordering
+`placeAroundAnchors` only reads and rewrites the parent's child list, so its ordering
 argument is made here on plain lists: `placeList R P cur L`, where `P` lists the
 placements as `(anchored?, node)` and `R` holds every placed node.
 
@@ -14,7 +14,7 @@ import Snabbdom.Proofs.Basic
 
 namespace Snabbdom
 
-/-- `nextReconciledNode` on a list. -/
+/-- `nextReconciled` on a list. -/
 def nextReconciledIn (R L : List NodeId) : Option NodeId → Option NodeId
   | none => none
   | some o => (L.dropWhile (· ≠ o)).find? (· ∈ R)

@@ -28,7 +28,6 @@ theorem lisSearch_spec (seq : Nat → Int) (tails : Nat → Nat) (value : Int) (
     rw [lisSearch]; simp only [hlt, ite_false]
     exact ⟨h, Or.inl trivial⟩
 
-/-- Each recorded predecessor is at a smaller index and holds a smaller value. -/
 def PrevOk (f : Nat → Int) (previous : Nat → Int) : Prop :=
   ∀ j, previous j = -1 ∨ (0 ≤ previous j ∧ (previous j).toNat < j ∧
     0 ≤ f (previous j).toNat ∧ f (previous j).toNat < f j)
@@ -117,7 +116,6 @@ theorem pairwise_or {α} {R : α → α → Prop} : ∀ {l : List α}, l.Pairwis
     · subst eb; exact Or.inr (h.1 a ha')
     · exact pairwise_or h.2 a ha' b hb' hab
 
-/-- The run holds indexes of non-negative entries, increasing with the index. -/
 theorem longestIncreasingRun_spec (seq : List Int) :
     (∀ i ∈ longestIncreasingRun seq, i < seq.length ∧ 0 ≤ seq.getD i (-1)) ∧
     ∀ a ∈ longestIncreasingRun seq, ∀ b ∈ longestIncreasingRun seq, a < b →
@@ -139,12 +137,10 @@ theorem longestIncreasingRun_spec (seq : List Int) :
   · omega
   · exact h.2
 
-/-- `insertAllBefore` on a list. -/
 def insertAllList (next : Option NodeId) : List NodeId → List NodeId → List NodeId
   | [], L => L
   | n :: ns, L => insertAllList next ns (insertAt n next (L.erase n))
 
-/-- `placeFewest` on a list. -/
 def placeFewestList : List (NodeId × Bool) → List NodeId → Option NodeId → List NodeId → List NodeId
   | [], blk, next, L => insertAllList next blk L
   | (n, true) :: rest, blk, next, L => placeFewestList rest [] (some n) (insertAllList next blk L)
@@ -157,9 +153,6 @@ theorem mem_stayOf {Z : List (NodeId × Bool)} {n : NodeId} : n ∈ stayOf Z ↔
   constructor
   · rintro ⟨⟨a, b⟩, ⟨h, hb⟩, rfl⟩; simp only at hb; subst hb; exact h
   · intro h; exact ⟨(n, true), ⟨h, rfl⟩, rfl⟩
-
-theorem stayOf_append (A B : List (NodeId × Bool)) : stayOf (A ++ B) = stayOf A ++ stayOf B := by
-  simp [stayOf]
 
 theorem insertAllList_mem (next : Option NodeId) : ∀ (blk L : List NodeId) (x : NodeId),
     x ∈ L → x ∈ insertAllList next blk L
@@ -231,8 +224,6 @@ theorem append_cons_cancel (r : NodeId) : ∀ (X Y A B : List NodeId), X ++ r ::
     obtain ⟨e1, e2⟩ := append_cons_cancel r X Y A B h.2 hX.2 hA.2
     exact ⟨by rw [h.1, e1], e2⟩
 
-/-- Inserting `b` before the head of `S` (or at the end) puts it just before
-`S` among the nodes of `U`. -/
 theorem keepIn_insert (U L A S : List NodeId) (b : NodeId) (next : Option NodeId) (hL : L.Nodup)
     (hb : b ∉ U) (h : keepIn U L = A ++ S) (hn : next = S.head?) (hS : ∀ x ∈ S, x ∈ U) :
     keepIn (U ++ [b]) (insertAt b next (L.erase b)) = A ++ [b] ++ S := by
@@ -361,8 +352,6 @@ theorem placeFewestList_keep (Z : List (NodeId × Bool)) (hZ : (Z.map (·.1)).No
       · rintro (h | h | h) <;> simp [h]
       · rintro ((h | h) | h) <;> simp [h]
 
-/-- With the staying nodes already in order in `L`, the placement puts all of
-`Z` in order. -/
 theorem placeFewestList_correct (Z : List (NodeId × Bool)) (L : List NodeId)
     (hZ : (Z.map (·.1)).Nodup) (hL : L.Nodup) (hstay : keepIn (stayOf Z) L = stayOf Z) :
     keepIn (Z.map (·.1)) (placeFewestList Z.reverse [] none L) = Z.map (·.1) :=
@@ -483,7 +472,6 @@ theorem placeFewest_spec (elm : NodeId) : ∀ (rest : List (NodeId × Bool)) (bl
     simp only [placeFewest, placeFewestList]
     exact ⟨w, ok, nx, ne, sc, fun m hm hm' => fr m hm (fun h => hm' ((hmem m).1 h))⟩
 
-/-- Nodes of `L` listed in increasing position `f` form a sublist of `L`. -/
 theorem sublist_of_pos : ∀ (L : List NodeId) (f : NodeId → Nat), (∀ j (h : j < L.length), f L[j] = j) →
     ∀ S : List NodeId, (∀ x ∈ S, x ∈ L) → S.Pairwise (fun a b => f a < f b) → S.Sublist L
   | [], _, _, S, hS, _ => by
@@ -527,9 +515,10 @@ theorem sublist_of_pos : ∀ (L : List NodeId) (f : NodeId → Nat), (∀ j (h :
         · exact ⟨hS z List.mem_cons_self, hxy⟩
         · exact hS' z hz
 
-/-- `placeWithFewestMoves` puts the nodes `R` in order among the children `L`
-of `elm`, given that `oldIndex` gives, for each node of `R` it does not mark
-`-1`, its position in `L`. -/
+/-- `hidx` is what `oldIndexOf` provides: each non-negative entry of `oldIndex`
+is the position in `ex.children` of that node of `R`. It makes the nodes at the
+indexes of `longestIncreasingRun` already ordered in `ex.children`, so moving
+only the others puts all of `R` in order. -/
 theorem placeWithFewestMoves_spec (elm : NodeId) (R : List NodeId) (oldIndex : List Int) (d : Dom)
     (ex : DomNode) (hw : HeapWF d) (he : d.nodes elm = some ex) (hLnd : ex.children.Nodup)
     (hR : R.Nodup)

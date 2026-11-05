@@ -196,28 +196,33 @@ inductive Placement where
 def Placement.child : Placement → PNode
   | .anchored c | .movable c => c
 
-/-- Scala's `oldByKey`. -/
+/-- Scala's `KeyIndex` before any claim: the old children with key `k`, in
+sibling order. Unlike `KeyIndex` it also holds the children before `start`, but
+the fold has claimed all of those by the time it leaves the prefix (see
+`matchedPrefix`), so `KeyIndex.claim` and `matchOne` pick the same child. -/
 def keyedOld (oldCh : List PNode) (k : String) : List PNode :=
   oldCh.filter (·.key == some k)
 
-/-- The `nextSibling` loop in `updateChildren`, written as a search over the
-siblings from `cursor` on. -/
-def nextReconciledNode (d : Dom) (reconciled : List NodeId) : Option NodeId → Option NodeId
+/-- Scala's `nextReconciled`, written as a search over the siblings from the
+cursor on. -/
+def nextReconciled (d : Dom) (reconciled : List NodeId) : Option NodeId → Option NodeId
   | none => none
   | some o => (d.siblingsFrom o).find? (· ∈ reconciled)
 
-/-- The placement loop of `updateChildren`. -/
-def place (parentElm : NodeId) (reconciled : List NodeId) :
+/-- `.movable` is Scala's `oldIndex(k) < 0 || isKeyed(news(k))`. -/
+def placeAroundAnchors (parentElm : NodeId) (reconciled : List NodeId) :
     List Placement → Option NodeId → Dom → Dom
   | [], _, d => d
-  | .anchored c :: rest, _, d => place parentElm reconciled rest (d.nextSibling c.node) d
+  | .anchored c :: rest, _, d => placeAroundAnchors parentElm reconciled rest (d.nextSibling c.node) d
   | .movable c :: rest, cursor, d =>
-    let reference := nextReconciledNode d reconciled cursor
+    let reference := nextReconciled d reconciled cursor
     if reference = some c.node then
-      place parentElm reconciled rest (d.nextSibling c.node) d
+      placeAroundAnchors parentElm reconciled rest (d.nextSibling c.node) d
     else
-      place parentElm reconciled rest reference (d.insertBefore parentElm c.node reference)
+      placeAroundAnchors parentElm reconciled rest reference (d.insertBefore parentElm c.node reference)
 
+/-- After the prefix, an anchored placement is what sets Scala's
+`anchoredAfterStart`. -/
 def Placement.isAnchored : Placement → Bool
   | .anchored _ => true
   | .movable _ => false
@@ -230,18 +235,23 @@ def oldIndexOf (oldCh : List PNode) (pl : Placement) : Int :=
   | some i => i
   | none => -1
 
-/-- Scala's `start`: how many leading children reused the old child at their own
-position. The prefix loop and the general loop choose the same old child there
-(an unkeyed child takes its position; a keyed one takes the first unclaimed old
-child with its key, which is the one at its position), so the matching fold
-makes the same calls as the two Scala loops. -/
+/-- Scala's `start`, recovered from `oldIndex`: how many leading children reused
+the old child at their own position. It stops where Scala's prefix loop stops,
+so the matching fold makes the same calls as the prefix loop and the general
+loop together:
+* inside Scala's prefix, `sameVnode(olds(j), news(j))` holds, and the fold
+  claims `olds(j)`: an unkeyed child takes its position, and a keyed one takes
+  the first unclaimed `sameVnode` old child with its key, which is `olds(j)`
+  because every earlier old child is already claimed;
+* where Scala's prefix stops, `sameVnode` fails against `olds(j)` (or there is
+  none), so neither rule picks it and the count stops there too. -/
 def matchedPrefix : List Int → Nat → Nat
   | [], _ => 0
   | i :: is, j => if i = j then matchedPrefix is (j + 1) + 1 else 0
 
-/-! ### `longestIncreasingRun` -/
-
-/-- Its binary search: the first `lo` whose run end is not below `value`. -/
+/-- The binary search of Scala's `longestIncreasingRun`: where `seq ∘ tails`
+increases on `[lo, hi)`, the least `m` there with `value ≤ seq (tails m)`, or
+`hi`. -/
 def lisSearch (seq : Nat → Int) (tails : Nat → Nat) (value : Int) (lo hi : Nat) : Nat :=
   if lo < hi then
     let mid := (lo + hi) / 2
@@ -250,11 +260,13 @@ def lisSearch (seq : Nat → Int) (tails : Nat → Nat) (value : Int) (lo hi : N
   else lo
 termination_by hi - lo
 
+/-- The `tails`, `previous` and `length` of Scala's `longestIncreasingRun`. -/
 structure LisState where
   tails : Nat → Nat
   previous : Nat → Int
   length : Nat
 
+/-- One iteration of `while (i < n)` in Scala's `longestIncreasingRun`. -/
 def lisStep (seq : Nat → Int) (s : LisState) (i : Nat) : LisState :=
   if 0 ≤ seq i then
     let lo := lisSearch seq s.tails (seq i) 0 s.length
@@ -264,26 +276,29 @@ def lisStep (seq : Nat → Int) (s : LisState) (i : Nat) : LisState :=
       length := if lo = s.length then s.length + 1 else s.length }
   else s
 
-/-- The walk back along `previous`. `fuel` stands in for the loop's
-termination: every step goes to a smaller index, so the length suffices. -/
+/-- The final `while (k >= 0)` of Scala's `longestIncreasingRun`. Each step
+goes to a smaller index, so fuel equal to the length always reaches `-1`. -/
 def lisWalk (previous : Nat → Int) : Nat → Int → List Nat
   | 0, _ => []
   | fuel + 1, k => if 0 ≤ k then k.toNat :: lisWalk previous fuel (previous k.toNat) else []
 
-/-- The indexes in the run, last first. -/
+/-- Returns the indexes in the run, last first, where Scala returns the
+`inRun` flags. -/
 def longestIncreasingRun (seq : List Int) : List Nat :=
   let f : Nat → Int := fun i => seq.getD i (-1)
   let s := (List.range seq.length).foldl (lisStep f) ⟨fun _ => 0, fun _ => -1, 0⟩
   lisWalk s.previous seq.length (if 0 < s.length then (s.tails (s.length - 1) : Int) else -1)
 
+/-- The `while (k <= end)` loop of Scala's `placeWithFewestMoves`. -/
 def insertAllBefore (p : NodeId) (next : Option NodeId) : List NodeId → Dom → Dom
   | [], d => d
   | n :: ns, d => insertAllBefore p next ns (d.insertBefore p n next)
 
-/-- `placeWithFewestMoves`. `rev` holds the children last first, each with
-whether it stays; `blk` the moving children met since the last staying one, in
-sibling order. Scala inserts such a block, first to last, before the staying
-child after it (or at the end), which is what flushing `blk` does. -/
+/-- The `while (end >= 0)` loop of Scala's `placeWithFewestMoves`, over the
+children last first, each with whether it stays. Walking backward, the moving
+children since the last staying one are buffered in sibling order; once the
+block is complete, they go in first to last before `next`, the staying child
+after them (or at the end), as in Scala. -/
 def placeFewest (p : NodeId) : List (NodeId × Bool) → List NodeId → Option NodeId → Dom → Dom
   | [], blk, next, d => insertAllBefore p next blk d
   | (n, true) :: rest, blk, next, d => placeFewest p rest [] (some n) (insertAllBefore p next blk d)
@@ -305,12 +320,12 @@ def finishChildren (parentElm : NodeId) (oldCh : List PNode) (pls : List Placeme
   else
     let reconciled := pls.map (·.child.node)
     let d := if (pls.drop start).any (·.isAnchored) then
-        place parentElm reconciled pls (oldCh.head?.map (·.node)) d
+        placeAroundAnchors parentElm reconciled pls (oldCh.head?.map (·.node)) d
       else placeWithFewestMoves parentElm reconciled oldIndex d
     let d := removeAllVnodes parentElm (oldCh.filter (fun o => o.node ∉ reconciled)) d
     (children, d)
 
-/-- `patchVnode`'s `case (Nil, ch @ _ :: _)`. -/
+/-- `patchVnode`'s `case (Nil, _ :: _)`. -/
 def createAndInsert (elm : NodeId) : List VNode → Dom → List PNode × Dom
   | [], d => ([], d)
   | v :: vs, d =>
@@ -319,8 +334,9 @@ def createAndInsert (elm : NodeId) : List VNode → Dom → List PNode × Dom
     let (ps, d) := createAndInsert elm vs d
     (p :: ps, d)
 
-/-- One step of the `foldLeft` over the new children: find the old child that
-`v` reuses, or create a fresh one. `pv o d` patches `o` into `v`. `pos` is the
+/-- One iteration of the prefix loop or of `while (j < newLen)` in
+`updateChildren`: find the old child that `v` reuses (`KeyIndex.claim` for a
+keyed `v`), or create a fresh one. `pv o d` patches `o` into `v`. `pos` is the
 index of `v`; `byKey` holds the old keyed children not claimed yet. -/
 def matchOne (oldCh : List PNode) (byKey : String → List PNode) (pos : Nat) (v : VNode)
     (pv : PNode → Dom → PNode × Dom) (d : Dom) : Placement × (String → List PNode) × Dom :=

@@ -109,8 +109,12 @@ class ConformanceSuite extends munit.FunSuite {
     * selector also sets, and names in upper case, which the DOM lowercases:
     * both are outside the proved theorem but must still match the model.
     * Selectors in upper case check that the model lowercases tags too.
+    *
+    * A `wide` generator gives up to 12 siblings, mostly keyed elements over
+    * more keys, so that `longestIncreasingRun` and `placeWithFewestMoves` also
+    * run on long lists with several moved blocks.
     */
-  final class CaseGen(seed: Long) {
+  final class CaseGen(seed: Long, wide: Boolean) {
     private val r = new scala.util.Random(seed)
     def coin(num: Int, den: Int): Boolean = r.nextInt(den) < num
     private def pick[A](xs: Vector[A]): A = xs(r.nextInt(xs.length))
@@ -126,7 +130,11 @@ class ConformanceSuite extends munit.FunSuite {
         "DIV",
         "Span.x"
       )
-    private val keys = Vector("a", "b", "c")
+    private val keys =
+      if (wide) Vector("a", "b", "c", "d", "e", "f", "g", "h")
+      else Vector("a", "b", "c")
+    private val maxChildren = if (wide) 12 else 4
+    private val lastTextDraw = if (wide) 1 else 4
     // One spelling per name within a map: a Scala Map holding both `title`
     // and `TITLE` would set the same DOM attribute twice, in an iteration
     // order the JSON (sorted by key) does not carry.
@@ -145,10 +153,12 @@ class ConformanceSuite extends munit.FunSuite {
     def elem(depth: Int): VNode.Element = VNode.Element(
       pick(sels),
       VNodeData(
-        key = if (r.nextInt(3) == 0) None else Some(pick(keys)),
+        key =
+          if (r.nextInt(if (wide) 10 else 3) == 0) None else Some(pick(keys)),
         attrs = attrs()
       ),
-      if (depth <= 0) Nil else List.fill(r.nextInt(5))(node(depth - 1))
+      if (depth <= 0) Nil
+      else List.fill(r.nextInt(maxChildren + 1))(node(depth - 1))
     )
 
     def root(depth: Int): VNode = r.nextInt(10) match {
@@ -158,9 +168,9 @@ class ConformanceSuite extends munit.FunSuite {
     }
 
     def node(depth: Int): VNode = r.nextInt(12) match {
-      case 0             => VNode.Comment(pick(Vector("c", "d")))
-      case 1 | 2 | 3 | 4 => VNode.Text(pick(Vector("t", "u")))
-      case _             => elem(depth)
+      case 0                      => VNode.Comment(pick(Vector("c", "d")))
+      case n if n <= lastTextDraw => VNode.Text(pick(Vector("t", "u")))
+      case _                      => elem(depth)
     }
 
     def mutate(v: VNode, depth: Int): VNode = v match {
@@ -247,13 +257,16 @@ class ConformanceSuite extends munit.FunSuite {
   )
 
   test("emit conformance cases") {
-    val gen = new CaseGen(seed = 20261104L)
+    val gen = new CaseGen(seed = 20261104L, wide = false)
+    val wideGen = new CaseGen(seed = 20261105L, wide = true)
     val randomCases = (0 until nCases).iterator.map { _ =>
-      val old = gen.root(3)
-      val neu = if (gen.coin(2, 3)) gen.mutate(old, 3) else gen.root(3)
-      val detached = gen.coin(1, 5)
+      // shallower when wide, to keep the case size close to the others
+      val (g, depth) = if (gen.coin(1, 10)) (wideGen, 2) else (gen, 3)
+      val old = g.root(depth)
+      val neu = if (g.coin(2, 3)) g.mutate(old, depth) else g.root(depth)
+      val detached = g.coin(1, 5)
       // a sibling after `old`, so that replacing it inserts before a node
-      val sibling = !detached && gen.coin(1, 2)
+      val sibling = !detached && g.coin(1, 2)
       (old, neu, detached, sibling)
     }
     val cases = fixedCases.iterator.map { case (o, n) =>

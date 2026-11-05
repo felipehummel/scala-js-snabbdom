@@ -386,8 +386,6 @@ theorem matchedPrefix_spec : ∀ (l : List Int) (k : Nat),
         congr 2; omega
     · simp
 
-/-- Removing the old children that were not reused, from a child list `L'`
-that holds the reused ones in order, leaves exactly those. -/
 theorem remove_unused {oldCh : List PNode} {elm : NodeId} {R L' : List NodeId} {d : Dom} {ex : DomNode}
     (hw : HeapWF d) (he : d.nodes elm = some { ex with children := L' })
     (hO : (oldCh.map PNode.node).Nodup) (helm : ∀ o ∈ oldCh, o.node ≠ elm)
@@ -470,8 +468,7 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
     unfold finishChildren
     dsimp only
     split
-    · -- every old child was reused at its own position: the rest are appended
-      rename_i hstart
+    · rename_i hstart
       refine ⟨_, rfl, ?_⟩
       rw [hstart]
       obtain ⟨hlen, hidx⟩ := matchedPrefix_spec (pls.map (oldIndexOf oldCh)) 0
@@ -522,14 +519,13 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
       · intro m hm hmR _
         rw [nd3, ite_eq_right hm, ite_eq_right (fun h => hmR (by rw [hR]; exact List.mem_append_right _ h))]
     · split
-      · -- an anchored child after the prefix: the general placement loop
-        have hcur : oldCh.head?.map PNode.node = none ∨
+      · have hcur : oldCh.head?.map PNode.node = none ∨
             ∃ o, oldCh.head?.map PNode.node = some o ∧ o ∈ ex1.children := by
           cases oldCh with
           | nil => exact Or.inl rfl
           | cons o os => exact Or.inr ⟨o.node, rfl, by rw [hch]; exact List.mem_cons_self⟩
         obtain ⟨w3, ok3, nx3, ne3, sc3, fr3⟩ :=
-          place_spec elm (pls.map (·.child.node)) pls _ d2 ex1 hp.wf he2 hcur hp.roots_nodup hpls
+          placeAroundAnchors_spec elm (pls.map (·.child.node)) pls _ d2 ex1 hp.wf he2 hcur hp.roots_nodup hpls
         rw [hch] at ne3
         have hcorr := placeList_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
           (by rw [hRP]; exact hp.roots_nodup)
@@ -543,8 +539,7 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
           (fun x hx hxR => placeList_keep _ _ _ _ x hx (by rw [hRP]; exact hxR))
         exact ⟨_, rfl, w4, by rw [ok4, ok3], by rw [nx4, nx3], ne4,
           fun m hm => (sc3 m hm).trans (sc4 m hm), fun m hm hmR hmO => by rw [fr4 m hm hmO, fr3 m hm hmR]⟩
-      · -- no anchored child after the prefix: keep the longest increasing run
-        have hidx : ∀ i (hi : i < (pls.map (·.child.node)).length),
+      · have hidx : ∀ i (hi : i < (pls.map (·.child.node)).length),
             0 ≤ (pls.map (oldIndexOf oldCh)).getD i (-1) →
             ∃ j, ∃ hj : j < ex1.children.length, (pls.map (oldIndexOf oldCh)).getD i (-1) = j ∧
               ex1.children[j] = (pls.map (·.child.node))[i] := by
