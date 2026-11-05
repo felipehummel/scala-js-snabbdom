@@ -38,8 +38,8 @@ ThisBuild / githubWorkflowBuild +=
     )
   )
 
-// Checks the Lean proofs in formal/ and replays the Scala conformance cases
-// against the Lean model (formal/conformance.sh).
+// The Lean build and the conformance run do not vary across the OS, Scala and
+// Java matrix, so the job runs once.
 ThisBuild / githubWorkflowAddedJobs += {
   val leanInputs =
     "hashFiles('formal/lean-toolchain', 'formal/lake-manifest.json', 'formal/lakefile.toml')"
@@ -51,21 +51,17 @@ ThisBuild / githubWorkflowAddedJobs += {
     javas = githubWorkflowJavaVersions.value.toList.take(1),
     timeoutMinutes = Some(60),
     steps = githubWorkflowJobSetup.value.toList ++ List(
-      WorkflowStep.Use(
-        UseRef.Public("actions", "cache", "v4"),
-        name = Some("Cache elan"),
-        id = Some("cache-elan"),
-        params = Map(
-          "path" -> "~/.elan",
-          "key" -> "elan-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain') }}"
-        )
-      ),
+      // A pinned release checked by digest: elan-init.sh would install
+      // whichever elan release is latest at run time.
       WorkflowStep.Run(
         List(
-          "curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none"
+          "curl -sSfL -o elan.tar.gz https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz",
+          "echo '42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63  elan.tar.gz' | sha256sum -c",
+          "tar xzf elan.tar.gz",
+          "./elan-init -y --default-toolchain none"
         ),
         name = Some("Install elan"),
-        cond = Some("steps.cache-elan.outputs.cache-hit != 'true'")
+        workingDirectory = Some("${{ runner.temp }}")
       ),
       WorkflowStep.Run(
         List("echo \"$HOME/.elan/bin\" >> \"$GITHUB_PATH\""),

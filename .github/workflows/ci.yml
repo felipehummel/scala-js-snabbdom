@@ -229,16 +229,13 @@ jobs:
         if: matrix.java == 'temurin@8' && steps.setup-java-temurin-8.outputs.cache-hit == 'false'
         run: sbt +update
 
-      - name: Cache elan
-        id: cache-elan
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain') }}
-
       - name: Install elan
-        if: steps.cache-elan.outputs.cache-hit != 'true'
-        run: 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o elan.tar.gz https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz
+          echo '42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63  elan.tar.gz' | sha256sum -c
+          tar xzf elan.tar.gz
+          ./elan-init -y --default-toolchain none
 
       - name: Add elan to PATH
         run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
