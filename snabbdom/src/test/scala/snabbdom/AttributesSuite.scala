@@ -159,6 +159,15 @@ class AttributesSuite extends BaseSuite {
       assertEquals(elm.getAttribute("class"), "x y")
     }
 
+    vnode0.test("leave a key in another case alone on SVG elements") { vnode0 =>
+      val vnode1 = h("svg#a", VNodeData(attrs = Map("ID" -> "z")))
+      val vnode1p = patch(vnode0, vnode1)
+      val elm = patch(vnode1p, h("svg#a")).node.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttribute("id"), "a")
+      assertEquals(elm.getAttribute("ID"), null)
+      assertEquals(elm.attributes.length, 1)
+    }
+
     vnode0.test("keep a name respelled in another case") { vnode0 =>
       val vnode1 = h("div", VNodeData(attrs = Map("TITLE" -> "x")))
       val vnode1p = patch(vnode0, vnode1)
@@ -188,6 +197,23 @@ class AttributesSuite extends BaseSuite {
           elm.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
           "#a"
         )
+    }
+
+    vnode0.test("remove a namespaced key when dropped or set to false") {
+      vnode0 =>
+        val vnode1 = h("div", VNodeData(attrs = Map("xlink:href" -> "#a")))
+        val vnode1p = patch(vnode0, vnode1)
+        assertEquals(
+          vnode1p.node.asInstanceOf[dom.Element].attributes.length,
+          1
+        )
+        val dropped = patch(vnode1p, h("div")).node.asInstanceOf[dom.Element]
+        assertEquals(dropped.attributes.length, 0)
+
+        val vnode2p = patch(dom.document.createElement("div"), vnode1)
+        val vnode3 = h("div", VNodeData(attrs = Map("xlink:href" -> false)))
+        val falsed = patch(vnode2p, vnode3).node.asInstanceOf[dom.Element]
+        assertEquals(falsed.attributes.length, 0)
     }
 
   }

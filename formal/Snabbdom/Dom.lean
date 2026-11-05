@@ -169,7 +169,8 @@ as in the Attributes module. -/
 def setAttrNS (d : Dom) (n : NodeId) (k v : String) : Dom :=
   d.modify n fun x => { x with attrs := fun j => if j = k then some v else x.attrs j }
 
-/-- `removeAttributeNS`, with the local name of `k`. -/
+/-- `removeAttributeNS(ns, local name of k)`; the model keys the attribute by its
+qualified name (see `setAttrNS`). -/
 def removeAttrNS (d : Dom) (n : NodeId) (k : String) : Dom :=
   d.modify n fun x => { x with attrs := fun j => if j = k then none else x.attrs j }
 

@@ -123,11 +123,21 @@ theorem update_correct (sel : String) (old new : Attrs) (hold : AttrsWF old) (hn
         | some u => exact absurd (by simpa using hk) (List.find?_eq_none.1 hn _ (mem_of_lookup hl))
       simp [hl, hk]
 
-theorem Selector.attr_namespaced (s : Selector) {k : String} (h : namespaced k = true) :
+/-- A name that starts with `x` is neither `id` nor `class`. A namespaced key
+starts with `x`, and so does its lowercase. -/
+theorem Selector.attr_of_head (s : Selector) {k : String} (h : k.toList.head? = some 'x') :
     s.attr k = none := by
-  have hi : k ≠ "id" := by rintro rfl; simp [namespaced] at h
-  have hc : k ≠ "class" := by rintro rfl; simp [namespaced] at h
+  have hi : k ≠ "id" := by rintro rfl; exact absurd h (by decide)
+  have hc : k ≠ "class" := by rintro rfl; exact absurd h (by decide)
   simp [Selector.attr, hi, hc]
+
+theorem namespaced_head {k : String} (h : namespaced k = true) : k.toList.head? = some 'x' := by
+  simp only [namespaced, Bool.or_eq_true, String.startsWith_string_iff] at h
+  rcases h with (⟨t, ht⟩ | ⟨t, ht⟩) | ⟨t, ht⟩ <;> rw [← ht] <;> rfl
+
+theorem asciiLower_head (k : String) :
+    (asciiLower k).toList.head? = k.toList.head?.map Char.toLower := by
+  simp [asciiLower, List.head?_map]
 
 namespace Dom
 
@@ -190,13 +200,15 @@ theorem dropAttr_step (sel : String) (d : Dom) (n : NodeId) (k : String) :
   unfold dropAttr
   cases h : namespaced k
   · have ha : attrName k = asciiLower k := by simp [attrName, h]
-    simp only [Bool.false_eq_true, ite_false]
     cases hs : (Selector.parse sel).attr (asciiLower k) with
     | some v => rw [ha, hs]; exact setAttr_step d n k v
     | none => rw [← ha] at hs; rw [hs]; exact removeKey_step d n k
-  · simp only [ite_true]
-    rw [Selector.attr_namespaced _ (by simp [attrName, h])]
-    exact removeKey_step d n k
+  · have hx := namespaced_head h
+    have hk : attrName k = k := by simp [attrName, h]
+    have hr := removeKey_step d n k
+    rw [hk] at hr
+    rw [Selector.attr_of_head _ (by rw [asciiLower_head, hx]; rfl), hk, Selector.attr_of_head _ hx]
+    exact hr
 
 theorem foldl_step (n : NodeId) (op : Dom → String × AttrVal → Dom)
     (w : String × AttrVal → Option (Option String))

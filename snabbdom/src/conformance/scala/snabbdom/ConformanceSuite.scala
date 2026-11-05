@@ -244,9 +244,9 @@ class ConformanceSuite extends munit.FunSuite {
       Nil
     )
 
-  /** Inputs on which the Attributes module used to leave a different element
-    * than rendering from scratch, or throw: a removed key the selector also
-    * sets, a key respelled in another case, and namespaced keys.
+  /** Inputs where an Attributes update can diverge from rendering from scratch,
+    * or throw: a removed key the selector also sets, a key respelled in another
+    * case, and namespaced keys.
     */
   private val fixedCases: List[(VNode, VNode)] = List(
     div("div#a", "id" -> "z") -> div("div#a"),

@@ -71,30 +71,35 @@ object Attributes {
     })
   )
 
+  private val htmlNS = "http://www.w3.org/1999/xhtml"
   private val xlinkNS = "http://www.w3.org/1999/xlink"
   private val xmlNS = "http://www.w3.org/XML/1998/namespace"
   private val xmlnsNS = "http://www.w3.org/2000/xmlns/"
 
-  // The namespace a key's prefix names, or null. Every write and removal of
-  // the key goes through it, so the key never becomes two attributes.
-  private def namespaceOf(key: String): String =
-    if (key.isEmpty || key.charAt(0) != 'x') null
-    else if (key.startsWith("xml:")) xmlNS
-    else if (key.startsWith("xmlns:")) xmlnsNS
-    else if (key.startsWith("xlink:")) xlinkNS
-    else null
+  // The namespace a key's prefix names. Every write and removal of the key
+  // goes through it, so the key never becomes two attributes.
+  private def namespaceOf(key: String): Option[String] =
+    if (key.isEmpty || key.charAt(0) != 'x') None
+    else if (key.startsWith("xml:")) Some(xmlNS)
+    else if (key.startsWith("xmlns:")) Some(xmlnsNS)
+    else if (key.startsWith("xlink:")) Some(xlinkNS)
+    else None
 
-  private def set(elm: dom.Element, key: String, value: String): Unit = {
-    val ns = namespaceOf(key)
-    if (ns == null) elm.setAttribute(key, value)
-    else elm.setAttributeNS(ns, key, value)
-  }
+  private def set(elm: dom.Element, key: String, value: String): Unit =
+    namespaceOf(key) match {
+      case None     => elm.setAttribute(key, value)
+      case Some(ns) => elm.setAttributeNS(ns, key, value)
+    }
 
-  private def remove(elm: dom.Element, key: String): Unit = {
-    val ns = namespaceOf(key)
-    if (ns == null) elm.removeAttribute(key)
-    else elm.removeAttributeNS(ns, key.substring(key.indexOf(':') + 1))
-  }
+  // An attribute parsed from HTML markup, such as `xml:lang` on an element
+  // hydrated by `toVNode`, has no namespace even with a prefix, so this does
+  // not remove it.
+  private def remove(elm: dom.Element, key: String): Unit =
+    namespaceOf(key) match {
+      case None => elm.removeAttribute(key)
+      case Some(ns) =>
+        elm.removeAttributeNS(ns, key.substring(key.indexOf(':') + 1))
+    }
 
   private def write(elm: dom.Element, key: String, attr: AttrValue): Unit =
     attr match {
@@ -103,18 +108,16 @@ object Attributes {
       case AttrValue.StringAttrValue(value)  => set(elm, key, value)
     }
 
-  // The DOM lowercases the names `setAttribute` and `removeAttribute` take,
-  // in ASCII only.
+  // On an HTML element the DOM lowercases the names `setAttribute` and
+  // `removeAttribute` take, in ASCII only.
   private def asciiLower(s: String): String =
     s.map(c => if (c >= 'A' && c <= 'Z') (c + 32).toChar else c)
 
   // A key the new vnode drops goes back to what `createElm` leaves: the
   // selector's `id` or classes, if it sets them.
   private def drop(elm: dom.Element, sel: String, key: String): Unit = {
-    val fromSelector =
-      if (namespaceOf(key) != null) None
-      else Selector.attr(sel, asciiLower(key))
-    fromSelector match {
+    val name = if (elm.namespaceURI == htmlNS) asciiLower(key) else key
+    Selector.attr(sel, name) match {
       case Some(value) => elm.setAttribute(key, value)
       case None        => remove(elm, key)
     }

@@ -44,7 +44,8 @@ private[snabbdom] object Selector {
     Selector(tag, id, classes)
   }
 
-  /** The value `createElm` gives the attribute `name` (lowercase) from `sel`.
+  /** The value `createElm` gives the attribute `name` from `sel`: only `id` and
+    * `class`, spelled exactly so.
     */
   def attr(sel: String, name: String): Option[String] = name match {
     case "id"    => parse(sel).id

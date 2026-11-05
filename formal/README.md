@@ -88,20 +88,23 @@ theorem createElm_valid (v : VNode) (d : Dom) (hw : HeapWF d) (hok : d.ok = true
 
 ## What `VNode.WF` excludes
 
-`VNode.WF` is sufficient, not necessary. It excludes two kinds of input:
+`VNode.WF` is sufficient, not necessary. It asks for two things:
 
-* **Names the DOM rejects.** `createElement`, `setAttribute` and
+* **Names from a conservative subset.** `createElement`, `setAttribute` and
   `setAttributeNS` throw `InvalidCharacterError` or `NamespaceError` on some
-  names. The model has no such exceptions, so `WF` keeps to names that never
-  throw (see "exceptions on names" below).
-* **Two keys for one attribute,** such as `title` and `TITLE` in one map.
+  names, and the model has no such exceptions. `WF` keeps to names that never
+  throw: an ASCII letter, then ASCII letters, digits, `-`, `_` or `.`,
+  optionally after `xml:`, `xmlns:` or `xlink:` for a key. This also leaves out
+  names the DOM accepts, such as `_x`, `foo:bar` or non-ASCII names (see
+  "exceptions on names" below).
+* **One key per attribute,** so not `title` and `TITLE` in one map.
   `createElm` writes both, to the same DOM attribute, in the order the Scala
   `Map` iterates, which the vnode does not determine.
 
-Everything else the Attributes module accepts is covered, including a key the
-selector also sets (`div#a` with `{id: "z"}`: removing the key restores
-`id="a"`), a key respelled in another case between patches (the update removes
-before it writes), and namespaced keys.
+Within those names, the theorems cover a key the selector also sets (`div#a`
+with `{id: "z"}`: removing the key restores `id="a"`), a key respelled in
+another case between patches (the update removes before it writes), and
+namespaced keys, on HTML elements.
 
 ## How the proof is split
 
@@ -126,7 +129,14 @@ before it writes), and namespaced keys.
 The proof says nothing about these parts of the library:
 
 * user hooks (`init`, `create`, `insert`, `prepatch`, `update`, `remove`, `destroy`, `post`) and delayed removal
-* thunks, SVG (`createElementNS`), and fragments
+* thunks, SVG (`createElementNS`), and fragments. The model's elements are
+  all HTML elements, whose attribute names the DOM lowercases; on an SVG
+  element it does not, and the Attributes module compares a dropped key with
+  the selector's `id` and `class` without lowercasing it. The proof does not
+  cover that branch.
+* hydration (`toVNode`). An attribute parsed from HTML markup has no
+  namespace even when its name has a prefix, so dropping the key `xml:lang`
+  from a vnode hydrated from `<div xml:lang="fr">` leaves the attribute.
 * exceptions on names. `createElement` and `setAttribute` throw
   `InvalidCharacterError` on an invalid name, such as the empty tag that the
   selector `#a` gives or a key with a space in it. The model accepts every

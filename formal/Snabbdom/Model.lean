@@ -111,7 +111,7 @@ def Selector.parse (sel : String) : Selector :=
       | some (_ + 1) => some (String.ofList ((cs.drop (dot + 1)).map fun c => if c = '.' then ' ' else c))
       | _ => none }
 
-/-- `Selector.attr`, for a lowercase name. -/
+/-- `Selector.attr` -/
 def Selector.attr (s : Selector) (k : String) : Option String :=
   if k = "id" then s.id else if k = "class" then s.cls else none
 
@@ -145,9 +145,9 @@ def applyAttr (d : Dom) (n : NodeId) (k : String) : AttrVal → Dom
   | .bool false => removeKey d n k
   | .str s => setKey d n k s
 
-/-- `drop` -/
+/-- `drop`, on an HTML element, the only kind the model has. -/
 def dropAttr (sel : String) (d : Dom) (n : NodeId) (k : String) : Dom :=
-  match (if namespaced k then none else (Selector.parse sel).attr (asciiLower k)) with
+  match (Selector.parse sel).attr (asciiLower k) with
   | some v => d.setAttr n k v
   | none => removeKey d n k
 
