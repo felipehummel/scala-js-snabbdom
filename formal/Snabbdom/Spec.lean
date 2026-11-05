@@ -7,25 +7,50 @@ import Snabbdom.Model
 
 namespace Snabbdom
 
+/-- An element's attributes as read by qualified name: each one's namespace and
+value. -/
+abbrev AttrView := String → Option (Option String × String)
+
 inductive DTree where
   | text (s : String)
   | comment (s : String)
-  | elem (tag : String) (attrs : String → Option String) (children : List DTree)
+  | elem (tag : String) (attrs : AttrView) (children : List DTree)
+
+/-- The attribute list read by qualified name. -/
+def attrView (l : List Attr) : AttrView :=
+  fun q => (l.find? (·.qname == q)).map fun a => (a.ns, a.value)
+
+/-- `l` holds one attribute per qualified name and reads as `a`. -/
+def AttrsShow (l : List Attr) (a : AttrView) : Prop :=
+  (l.map Attr.qname).Nodup ∧ attrView l = a
+
+/-- The attribute is in the namespace `namespaceOf` reads from its qualified
+name, with that namespace's prefix, as the Attributes module writes them. -/
+def Attr.Canon (a : Attr) : Prop :=
+  match a.ns with
+  | none => a.pfx = none ∧ namespaceOf a.localName = none
+  | some ns => a.pfx = some (nsPrefix ns) ∧ namespaceOf a.qname = some ns
+
+/-- What `Mirrors` asks of an element's attributes: `AttrsShow`, and each
+attribute `Canon`. -/
+def AttrsMirror (l : List Attr) (a : AttrView) : Prop :=
+  AttrsShow l a ∧ ∀ x ∈ l, x.Canon
 
 def AttrVal.render : AttrVal → Option String
   | .str s => some s
   | .bool true => some ""
   | .bool false => none
 
-/-- The value `a` gives the attribute named `j`, through whichever key names it. -/
-def Attrs.get (a : Attrs) (j : String) : Option AttrVal :=
-  (a.find? (fun kv => attrName kv.1 == j)).map (·.2)
+/-- The entry that sets the attribute named `j`, through whichever key names it. -/
+def Attrs.get (a : Attrs) (j : String) : Option (String × AttrVal) :=
+  a.find? (fun kv => attrName kv.1 == j)
 
-/-- The attributes `createElm` leaves: the vnode's own over the selector's. -/
-def renderAttrs (sel : String) (a : Attrs) : String → Option String :=
+/-- The attributes `createElm` leaves: the vnode's own, in the namespace its
+key names, over the selector's. -/
+def renderAttrs (sel : String) (a : Attrs) : AttrView :=
   fun k => match a.get k with
-    | some v => v.render
-    | none => (Selector.parse sel).attr k
+    | some kv => kv.2.render.map (namespaceOf kv.1, ·)
+    | none => ((Selector.parse sel).attr k).map (none, ·)
 
 mutual
 def VNode.render : VNode → DTree
@@ -75,7 +100,7 @@ def Shows (d : Dom) (n : NodeId) : DTree → Prop
   | .text s => ∃ x, d.nodes n = some x ∧ x.kind = .text s ∧ x.children = []
   | .comment s => ∃ x, d.nodes n = some x ∧ x.kind = .comment s ∧ x.children = []
   | .elem tag a ts =>
-    ∃ x, d.nodes n = some x ∧ x.kind = .elem tag ∧ x.attrs = a ∧ ShowsList d x.children ts
+    ∃ x, d.nodes n = some x ∧ x.kind = .elem tag ∧ AttrsShow x.attrs a ∧ ShowsList d x.children ts
 def ShowsList (d : Dom) : List NodeId → List DTree → Prop
   | [], [] => True
   | n :: ns, t :: ts => Shows d n t ∧ ShowsList d ns ts
@@ -90,7 +115,7 @@ def Mirrors (d : Dom) : PNode → Prop
   | .comment s n => ∃ x, d.nodes n = some x ∧ x.kind = .comment s ∧ x.children = []
   | .elem sel data ch n =>
     ∃ x, d.nodes n = some x ∧ x.kind = .elem (asciiLower (Selector.parse sel).tag) ∧
-      x.attrs = renderAttrs sel data.attrs ∧
+      AttrsMirror x.attrs (renderAttrs sel data.attrs) ∧
       x.children = ch.map PNode.node ∧ MirrorsList d ch
 def MirrorsList (d : Dom) : List PNode → Prop
   | [] => True

@@ -122,22 +122,35 @@ def setSelectorAttrs (n : NodeId) (s : Selector) (d : Dom) : Dom :=
 
 /-! ## The Attributes module (modules/Attributes.scala) -/
 
-/-- Whether `namespaceOf` finds a namespace in the key's prefix. Which one does
-not matter here: for these three prefixes the qualified name, which keys the
-model's attributes, determines it. -/
-def namespaced (k : String) : Bool :=
-  k.startsWith "xml:" || k.startsWith "xmlns:" || k.startsWith "xlink:"
+def xmlNS : String := "http://www.w3.org/XML/1998/namespace"
+def xmlnsNS : String := "http://www.w3.org/2000/xmlns/"
+def xlinkNS : String := "http://www.w3.org/1999/xlink"
 
-/-- The name the element's attribute for key `k` ends up under. -/
-def attrName (k : String) : String := if namespaced k then k else asciiLower k
+/-- `namespaceOf` -/
+def namespaceOf (k : String) : Option String :=
+  if k.startsWith "xml:" then some xmlNS
+  else if k.startsWith "xmlns:" then some xmlnsNS
+  else if k.startsWith "xlink:" then some xlinkNS
+  else none
+
+/-- The prefix `namespaceOf` reads each of its namespaces from. -/
+def nsPrefix (ns : String) : String :=
+  if ns = xmlNS then "xml" else if ns = xmlnsNS then "xmlns" else "xlink"
+
+/-- The qualified name of the attribute key `k` sets. -/
+def attrName (k : String) : String := if (namespaceOf k).isSome then k else asciiLower k
 
 /-- `set` -/
 def setKey (d : Dom) (n : NodeId) (k v : String) : Dom :=
-  if namespaced k then d.setAttrNS n k v else d.setAttr n k v
+  match namespaceOf k with
+  | none => d.setAttr n k v
+  | some ns => d.setAttrNS n ns k v
 
 /-- `remove` -/
 def removeKey (d : Dom) (n : NodeId) (k : String) : Dom :=
-  if namespaced k then d.removeAttrNS n k else d.removeAttr n k
+  match namespaceOf k with
+  | none => d.removeAttr n k
+  | some ns => d.removeAttrNS n (some ns) (splitQName k).2
 
 /-- `write` -/
 def applyAttr (d : Dom) (n : NodeId) (k : String) : AttrVal → Dom

@@ -39,13 +39,13 @@ def Op.render : Op → String
   | .removeChild p n => s!"rc {p} {n}"
   | .setText n s => s!"st {n} {s}"
 
-partial def attrKeys : VNode → List String
-  | .elem _ d ch => d.attrs.map (attrName ·.1) ++ ch.flatMap attrKeys
-  | _ => []
+/-- ` name="value"`, with `{namespace}` before the name when it has one. -/
+def Attr.render (a : Attr) : String :=
+  " " ++ a.ns.elim "" (fun ns => "{" ++ ns ++ "}") ++ a.qname ++ "=\"" ++ a.value ++ "\""
 
-/-- Same format as `ConformanceSuite.serialize` on the Scala side, which lists
-every attribute; `keys` must cover every name the model can have set. -/
-partial def serialize (d : Dom) (keys : List String) (n : NodeId) : String :=
+/-- Same format as `ConformanceSuite.serialize` on the Scala side: attributes
+sorted by qualified name, then namespace. -/
+partial def serialize (d : Dom) (n : NodeId) : String :=
   match d.get n with
   | none => "?"
   | some x =>
@@ -53,9 +53,10 @@ partial def serialize (d : Dom) (keys : List String) (n : NodeId) : String :=
     | .text s => "\"" ++ s ++ "\""
     | .comment s => "<!--" ++ s ++ "-->"
     | .elem tag =>
-      let attrs := keys.filterMap fun k => (x.attrs k).map fun v => s!" {k}=\"{v}\""
-      "<" ++ tag ++ String.join attrs ++ ">" ++
-        String.join (x.children.map (serialize d keys)) ++ "</" ++ tag ++ ">"
+      let sorted := x.attrs.mergeSort fun a b =>
+        a.qname < b.qname || (a.qname == b.qname && a.ns.getD "" ≤ b.ns.getD "")
+      "<" ++ tag ++ String.join (sorted.map Attr.render) ++ ">" ++
+        String.join (x.children.map (serialize d)) ++ "</" ++ tag ++ ">"
 
 structure Outcome where
   ok : Bool
@@ -76,9 +77,8 @@ def runCase (line : String) : Except String Outcome := do
   let d := { d with trace := #[] }
   let (nv, d) := patch pv new d
   let leanTrace := d.trace.toList.map Op.render
-  let keys := (("id" :: "class" :: attrKeys old ++ attrKeys new).mergeSort (· ≤ ·)).eraseDups
-  let hostDom := String.join (((d.get host).map (·.children)).getD [] |>.map (serialize d keys))
-  let leanDom := hostDom ++ "|" ++ serialize d keys nv.node
+  let hostDom := String.join (((d.get host).map (·.children)).getD [] |>.map (serialize d))
+  let leanDom := hostDom ++ "|" ++ serialize d nv.node
   if !d.ok then
     return ⟨false, "model reached a DOM error"⟩
   if leanTrace ≠ scalaTrace then

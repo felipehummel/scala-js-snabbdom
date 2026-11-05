@@ -224,10 +224,15 @@ class ConformanceSuite extends munit.FunSuite {
     case _ =>
       val e = n.asInstanceOf[dom.Element]
       val tag = e.tagName.toLowerCase
+      // `name` is the qualified name; a namespace goes before it in braces
       val attrs = (0 until e.attributes.length)
         .map(i => e.attributes(i))
-        .sortBy(_.name)
-        .map(a => s""" ${a.name}="${a.value}"""")
+        .map(a => (a.name, Option(a.namespaceURI).getOrElse(""), a.value))
+        .sortBy { case (name, ns, _) => (name, ns) }
+        .map { case (name, ns, value) =>
+          val prefix = if (ns.isEmpty) "" else s"{$ns}"
+          s""" $prefix$name="$value""""
+        }
         .mkString
       val children = (0 until e.childNodes.length)
         .map(i => serialize(e.childNodes(i)))
@@ -255,7 +260,14 @@ class ConformanceSuite extends munit.FunSuite {
       div("div", "xml:lang" -> "fr", "xlink:href" -> "#a"),
     div("div", "xlink:href" -> "#a") -> div("span", "xml:lang" -> "en"),
     div("div", "xmlns:xlink" -> "http://www.w3.org/1999/xlink") ->
-      div("div", "xlink:href" -> "#a")
+      div("div", "xlink:href" -> "#a"),
+    // the same qualified name without and with a namespace, both ways
+    div("div", "XLINK:HREF" -> "#a") -> div("div", "xlink:href" -> "#b"),
+    div("div", "xlink:href" -> "#b") -> div("div", "XLINK:HREF" -> "#a"),
+    // `setAttributeNS` keeps case, so these are two attributes; dropping one
+    // must leave the other
+    div("div", "xlink:HREF" -> "#a", "xlink:href" -> "#b") ->
+      div("div", "xlink:href" -> "#b")
   )
 
   test("emit conformance cases") {

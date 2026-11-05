@@ -2,6 +2,7 @@ import Snabbdom.Dom
 import Snabbdom.Model
 import Snabbdom.Spec
 import Snabbdom.Proofs.Basic
+import Snabbdom.Proofs.AttrList
 import Snabbdom.Proofs.Attrs
 import Snabbdom.Proofs.Create
 import Snabbdom.Proofs.PlaceList

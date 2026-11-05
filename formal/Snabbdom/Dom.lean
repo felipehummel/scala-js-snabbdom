@@ -10,6 +10,12 @@ modeled" in README.md).
 `trace` records the structural calls in the form the conformance check compares
 with Scala's `DomApi`. Attribute writes are not in it: the Scala code makes them
 on the element directly, so the check compares them through the final DOM.
+
+An element's attributes are the DOM standard's attribute list: in order, each
+with a namespace, a namespace prefix, a local name and a value. `setAttribute`
+and `removeAttribute` find the first attribute whose qualified name matches;
+`setAttributeNS` and `removeAttributeNS` find the one with the given namespace
+and local name.
 -/
 
 namespace Snabbdom
@@ -22,9 +28,22 @@ inductive Kind where
   | elem (tag : String)
   deriving DecidableEq, Repr
 
+structure Attr where
+  ns : Option String
+  pfx : Option String
+  localName : String
+  value : String
+  deriving DecidableEq, Repr
+
+/-- The prefix, a colon and the local name; the local name alone without a prefix. -/
+def Attr.qname (a : Attr) : String :=
+  match a.pfx with
+  | some p => p ++ ":" ++ a.localName
+  | none => a.localName
+
 structure DomNode where
   kind : Kind
-  attrs : String → Option String := fun _ => none
+  attrs : List Attr := []
   children : List NodeId := []
   parent : Option NodeId := none
 
@@ -58,6 +77,28 @@ def after (n : NodeId) : List NodeId → Option NodeId
 lowercase the name they are given (ASCII only, which is what `Char.toLower`
 does). -/
 def asciiLower (k : String) : String := String.ofList (k.toList.map Char.toLower)
+
+def splitAtColon : List Char → Option (List Char × List Char)
+  | [] => none
+  | c :: cs => if c = ':' then some ([], cs) else (splitAtColon cs).map fun pl => (c :: pl.1, pl.2)
+
+/-- The prefix and local name of a qualified name, as "validate and extract"
+splits it: at the colon. The model splits at the first colon; `AttrName` keeps
+the theorems to names with at most one. -/
+def splitQName (q : String) : Option String × String :=
+  match splitAtColon q.toList with
+  | some (p, l) => (some (String.ofList p), String.ofList l)
+  | none => (none, q)
+
+/-- Changes the value of the first attribute `p` picks to `v`, or appends `new`
+if it picks none. -/
+def setFirst (p : Attr → Bool) (v : String) (new : Attr) : List Attr → List Attr
+  | [] => [new]
+  | a :: as => if p a then { a with value := v } :: as else a :: setFirst p v new as
+
+def removeFirst (p : Attr → Bool) : List Attr → List Attr
+  | [] => []
+  | a :: as => if p a then as else a :: removeFirst p as
 
 namespace Dom
 
@@ -156,23 +197,31 @@ def setText (d : Dom) (n : NodeId) (s : String) : Dom :=
   | some { kind := .comment _, .. } => d.modify n fun x => { x with kind := .comment s }
   | _ => d.fail
 
+def modifyAttrs (d : Dom) (n : NodeId) (f : List Attr → List Attr) : Dom :=
+  d.modify n fun x => { x with attrs := f x.attrs }
+
+/-- `setAttribute`: on an HTML element, lowercases the name, then changes the
+first attribute with that qualified name, or appends one without a namespace. -/
 def setAttr (d : Dom) (n : NodeId) (k v : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = asciiLower k then some v else x.attrs j }
+  let q := asciiLower k
+  d.modifyAttrs n (setFirst (·.qname == q) v { ns := none, pfx := none, localName := q, value := v })
 
+/-- `removeAttribute`: removes the first attribute with the lowercased name as
+its qualified name. -/
 def removeAttr (d : Dom) (n : NodeId) (k : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = asciiLower k then none else x.attrs j }
+  let q := asciiLower k
+  d.modifyAttrs n (removeFirst (·.qname == q))
 
-/-- `setAttributeNS`, which does not lowercase. The model keys a namespaced
-attribute by its qualified name `k`; the DOM keys it by namespace and local
-name, which is the same thing as long as each prefix comes with one namespace,
-as in the Attributes module. -/
-def setAttrNS (d : Dom) (n : NodeId) (k v : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = k then some v else x.attrs j }
+/-- `setAttributeNS`, which does not lowercase: changes the attribute with
+namespace `ns` and the local name of `k`, keeping its prefix, or appends one. -/
+def setAttrNS (d : Dom) (n : NodeId) (ns k v : String) : Dom :=
+  let q := splitQName k
+  d.modifyAttrs n (setFirst (fun a => a.ns == some ns && a.localName == q.2) v
+    { ns := some ns, pfx := q.1, localName := q.2, value := v })
 
-/-- `removeAttributeNS(ns, local name of k)`; the model keys the attribute by its
-qualified name (see `setAttrNS`). -/
-def removeAttrNS (d : Dom) (n : NodeId) (k : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = k then none else x.attrs j }
+/-- `removeAttributeNS`; `none` is the null namespace. -/
+def removeAttrNS (d : Dom) (n : NodeId) (ns : Option String) (l : String) : Dom :=
+  d.modifyAttrs n (removeFirst (fun a => a.ns == ns && a.localName == l))
 
 end Dom
 

@@ -2,11 +2,11 @@ import Snabbdom.Proofs.Patch
 
 namespace Snabbdom
 
-theorem dn_eq (ex : DomNode) (A : String → Option String) (L L' : List NodeId) (h : L = L') :
+theorem dn_eq (ex : DomNode) (A : List Attr) (L L' : List NodeId) (h : L = L') :
     ({ { ex with attrs := A } with children := L } : DomNode) = { ex with attrs := A, children := L' } := by
   subst h; rfl
 
-theorem dn_eq' (ex : DomNode) (A : String → Option String) (L : List NodeId) (h : ex.children = L) :
+theorem dn_eq' (ex : DomNode) (A : List Attr) (L : List NodeId) (h : ex.children = L) :
     ({ ex with attrs := A } : DomNode) = { ex with attrs := A, children := L } := by
   cases ex; simp only at h; subst h; rfl
 
@@ -29,8 +29,9 @@ theorem text_patched {d : Dom} {os s : String} {n : NodeId} (h : PPre d (.text o
 
 theorem elem_patched {d d' : Dom} {osel : String} {odata data : Data} {oldCh newCh : List PNode}
     {elm : NodeId} (h : PPre d (.elem osel odata oldCh elm)) {ex : DomNode} (hex : d.nodes elm = some ex)
+    {L : List Attr} (hL : AttrsMirror L (renderAttrs osel data.attrs))
     (w : HeapWF d') (ok : d'.ok = d.ok) (le : d.next ≤ d'.next)
-    (he' : d'.nodes elm = some { ex with attrs := renderAttrs osel data.attrs, children := newCh.map PNode.node })
+    (he' : d'.nodes elm = some { ex with attrs := L, children := newCh.map PNode.node })
     (fr : ∀ i, i < d.next → i ∉ (PNode.elem osel odata oldCh elm).ids → d'.nodes i = d.nodes i)
     (rp : MirrorsList d' newCh) (nd : (PNode.idsList newCh).Nodup)
     (rg : ∀ i ∈ PNode.idsList newCh, i ∈ PNode.idsList oldCh ∨ (d.next ≤ i ∧ i < d'.next)) :
@@ -39,7 +40,7 @@ theorem elem_patched {d d' : Dom} {osel : String} {odata data : Data} {oldCh new
   rw [hex] at hx; cases hx
   have hnd := h.ids_nodup; rw [PNode.ids_elem, List.nodup_cons] at hnd
   have helm := h.ids_lt elm (by simp [PNode.ids])
-  refine ⟨w, ok, le, fr, ⟨_, he', hk, rfl, rfl, rp⟩, ?_, ?_, rfl, ?_⟩
+  refine ⟨w, ok, le, fr, ⟨_, he', hk, hL, rfl, rp⟩, ?_, ?_, rfl, ?_⟩
   · rw [PNode.ids_elem, List.nodup_cons]
     refine ⟨fun hm => ?_, nd⟩
     rcases rg elm hm with h1 | h1
@@ -72,7 +73,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
   have hwo := h.vnode_wf
   simp only [PNode.toVNode, VNode.WF] at hwo
   obtain ⟨ex, hex, hk, hea, hec, hrl⟩ := h.mirrors
-  obtain ⟨g, hst, hg⟩ := moduleUpdate_step osel odata oldCh elm osel data ch d
+  obtain ⟨g, hst, hg⟩ := moduleUpdate_step osel odata oldCh elm osel data ch d hwo.2.1 hattrs
   have hnd := h.ids_nodup; rw [PNode.ids_elem, List.nodup_cons] at hnd
   have helm : elm < d.next := h.ids_lt elm (by simp [PNode.ids])
   have hidl : ∀ i ∈ PNode.idsList oldCh, i < d.next := fun i hi =>
@@ -82,8 +83,10 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       fun hm => hi (by rw [PNode.ids_elem]; exact List.mem_cons_of_mem _ hm)⟩
   rw [patchVnode, ite_eq_right heq]
   generalize hd1 : moduleUpdate (.elem osel odata oldCh elm) (.elem osel data ch) d = d1 at hst
-  have he1 : d1.nodes elm = some { ex with attrs := renderAttrs osel data.attrs } := by
-    rw [hst.nodes, ite_eq_left rfl, hex]; simp [hea, hg hwo.2.1 hattrs]
+  obtain ⟨L1, he1, hL1⟩ := hst.node hex
+  have hm1 : AttrsMirror L1 (renderAttrs osel data.attrs) := by
+    obtain ⟨t1, v1⟩ := hL1 hea.tidy
+    exact AttrsMirror.of_tidy t1 (by rw [v1, hea.1.2, hg])
   have fr1 : ∀ i, i ≠ elm → d1.nodes i = d.nodes i := fun i hi => hst.other i hi
   have w1 := hst.wf h.wf
   have rl1 : MirrorsList d1 oldCh := MirrorsList.frame oldCh hrl
@@ -95,7 +98,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
     cases ch with
     | nil =>
       dsimp only
-      refine ⟨elem_patched h hex w1 hst.ok (by omega) ?_ (fun i _ hi => fr1 i (hnot i hi).1) trivial
+      refine ⟨elem_patched h hex hm1 w1 hst.ok (by omega) ?_ (fun i _ hi => fr1 i (hnot i hi).1) trivial
         (by simp [PNode.idsList]) (by simp [PNode.idsList]), rfl⟩
       rw [he1, dn_eq' ex _ _ hec]
     | cons c cs =>
@@ -105,7 +108,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       generalize createAndInsert elm (c :: cs) d1 = r at w2 ok2 le2 ne2 fr2 rp2 nd2 rg2 tv2 ⊢
       obtain ⟨ps, d2⟩ := r
       dsimp only at *
-      refine ⟨elem_patched h hex w2 (by rw [ok2, hst.ok]) (by omega) ?_ ?_ rp2 nd2 ?_, ?_⟩
+      refine ⟨elem_patched h hex hm1 w2 (by rw [ok2, hst.ok]) (by omega) ?_ ?_ rp2 nd2 ?_, ?_⟩
       · rw [ne2, hec]; rfl
       · intro i hi hio
         rw [fr2 i (by omega) (hnot i hio).1, fr1 i (hnot i hio).1]
@@ -119,7 +122,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       obtain ⟨w2, ok2, nx2, ne2, _, fr2⟩ := removeAll_spec elm (o :: os) d1 _ w1 he1 hnd'
         (fun o' ho' => ⟨by rw [hec]; exact List.mem_map_of_mem ho',
           fun e => hnd.1 (e ▸ PNode.mem_ids_of_mem ho' (PNode.node_mem_ids o'))⟩)
-      refine ⟨elem_patched h hex w2 (by rw [ok2, hst.ok]) (by omega) ?_ ?_ trivial
+      refine ⟨elem_patched h hex hm1 w2 (by rw [ok2, hst.ok]) (by omega) ?_ ?_ trivial
         (by simp [PNode.idsList]) (by simp [PNode.idsList]), rfl⟩
       · rw [ne2]
         congr 2
@@ -135,7 +138,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       by_cases hsame : PNode.toVNodes (o :: os) = c :: cs
       · rw [ite_eq_right (fun h' => h' hsame)]
         dsimp only
-        refine ⟨elem_patched h hex w1 hst.ok (by omega) ?_ (fun i _ hi => fr1 i (hnot i hi).1) rl1 hnd.2
+        refine ⟨elem_patched h hex hm1 w1 hst.ok (by omega) ?_ (fun i _ hi => fr1 i (hnot i hi).1) rl1 hnd.2
           (fun i hi => Or.inl hi), ?_⟩
         · rw [he1, dn_eq' ex _ _ hec]
         · simp only [PNode.toVNode, hsame]
@@ -165,7 +168,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
         dsimp only at *
         subst hr4
         have := hmp.le
-        refine ⟨elem_patched h hex w4 (by rw [ok4, hst.ok]) (by omega) ?_ ?_ rp4 hmp.ids_nodup ?_, ?_⟩
+        refine ⟨elem_patched h hex hm1 w4 (by rw [ok4, hst.ok]) (by omega) ?_ ?_ rp4 hmp.ids_nodup ?_, ?_⟩
         · rw [ne4, List.map_map]; rfl
         · intro i hi hio
           rw [fr4 i (by omega) (hnot i hio).2 (hnot i hio).1, fr1 i (hnot i hio).1]
