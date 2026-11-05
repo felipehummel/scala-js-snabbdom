@@ -4,7 +4,7 @@ claimed so far (`C`): a claimed child's subtree is being rewritten by the
 recursive `patchVnode`, so the fold may no longer assume it mirrors the DOM,
 and no later new child may claim it again.
 -/
-import Snabbdom.Proofs.Children
+import Snabbdom.Proofs.PlaceFewest
 
 namespace Snabbdom
 
@@ -361,6 +361,77 @@ theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
       exact ⟨x, by rw [hr.frame _ hf.1 hf.2]; exact hx, hxp⟩
     · exact hr.parent pl' hpl'
 
+theorem oldIndexOf_nonneg {oldCh : List PNode} {pl : Placement} (h : 0 ≤ oldIndexOf oldCh pl) :
+    ∃ j, ∃ hj : j < oldCh.length, oldIndexOf oldCh pl = j ∧ oldCh[j].node = pl.child.node := by
+  unfold oldIndexOf at *
+  cases hf : oldCh.findIdx? (fun o => decide (o.node = pl.child.node)) with
+  | none => rw [hf] at h; simp at h
+  | some j =>
+    obtain ⟨hj, hp, _⟩ := List.findIdx?_eq_some_iff_getElem.1 hf
+    exact ⟨j, hj, rfl, by simpa using hp⟩
+
+theorem matchedPrefix_spec : ∀ (l : List Int) (k : Nat),
+    matchedPrefix l k ≤ l.length ∧ ∀ j, j < matchedPrefix l k → l[j]? = some ((k + j : Nat) : Int)
+  | [], _ => by simp [matchedPrefix]
+  | i :: is, k => by
+    simp only [matchedPrefix]
+    split
+    · rename_i hi
+      obtain ⟨h1, h2⟩ := matchedPrefix_spec is (k + 1)
+      refine ⟨by simp; omega, fun j hj => ?_⟩
+      cases j with
+      | zero => simp [hi]
+      | succ j =>
+        rw [List.getElem?_cons_succ, h2 j (by omega)]
+        congr 2; omega
+    · simp
+
+/-- Removing the old children that were not reused, from a child list `L'`
+that holds the reused ones in order, leaves exactly those. -/
+theorem remove_unused {oldCh : List PNode} {elm : NodeId} {R L' : List NodeId} {d : Dom} {ex : DomNode}
+    (hw : HeapWF d) (he : d.nodes elm = some { ex with children := L' })
+    (hO : (oldCh.map PNode.node).Nodup) (helm : ∀ o ∈ oldCh, o.node ≠ elm)
+    (hkeep : keepIn R L' = R) (hsub : ∀ x ∈ L', x ∈ oldCh.map PNode.node ∨ x ∈ R)
+    (hsup : ∀ x ∈ oldCh.map PNode.node, x ∉ R → x ∈ L') :
+    HeapWF (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d) ∧
+    (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d).ok = d.ok ∧
+    (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d).next = d.next ∧
+    (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d).nodes elm =
+      some { ex with children := R } ∧
+    (∀ m, m ≠ elm → SameContent d (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d) m) ∧
+    (∀ m, m ≠ elm → m ∉ oldCh.map PNode.node →
+      (removeAllVnodes elm (oldCh.filter (fun o => decide (o.node ∉ R))) d).nodes m = d.nodes m) := by
+  have hU : ∀ u ∈ oldCh.filter (fun o => decide (o.node ∉ R)),
+      u.node ∈ { ex with children := L' }.children ∧ u.node ≠ elm := by
+    intro u hu
+    obtain ⟨hu1, hu2⟩ := List.mem_filter.1 hu
+    simp only [decide_eq_true_eq] at hu2
+    exact ⟨hsup _ (List.mem_map_of_mem hu1) hu2, helm u hu1⟩
+  have hUnd : ((oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node).Nodup :=
+    List.Nodup.sublist (List.filter_sublist.map PNode.node) hO
+  obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := removeAll_spec elm _ d _ hw he hUnd hU
+  have hfilt : L'.filter (fun x => decide (x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node)) = R := by
+    refine Eq.trans ?_ hkeep
+    unfold keepIn
+    apply List.filter_congr
+    intro x hx
+    by_cases hxR : x ∈ R
+    · have : x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node := by
+        intro hm; obtain ⟨u, hu, rfl⟩ := List.mem_map.1 hm
+        exact (by simpa using (List.mem_filter.1 hu).2 : u.node ∉ R) hxR
+      rw [decide_eq_true this, decide_eq_true hxR]
+    · have hxO : x ∈ oldCh.map PNode.node := by
+        rcases hsub x hx with h1 | h1
+        · exact h1
+        · exact absurd h1 hxR
+      obtain ⟨o, ho, rfl⟩ := List.mem_map.1 hxO
+      have : o.node ∈ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node :=
+        List.mem_map_of_mem (List.mem_filter.2 ⟨ho, by simpa using hxR⟩)
+      rw [decide_eq_false (fun hn => hn this), decide_eq_false hxR]
+  refine ⟨w4, ok4, nx4, by rw [ne4, hfilt], sc4, fun m hm hmO => fr4 m hm (fun h => hmO ?_)⟩
+  obtain ⟨u, hu, rfl⟩ := List.mem_map.1 h
+  exact List.mem_map_of_mem (List.mem_filter.1 hu).1
+
 theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List PNode} {vs : List VNode}
     {pls : List Placement} {d1 d2 : Dom} {ex1 : DomNode}
     (h : MPre oldCh elm d1.next [] byKey 0 d1) (hp : MPost oldCh elm [] 0 vs d1 pls d2)
@@ -375,11 +446,6 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
   have hel := h.elm_lt; have helm := h.elm_not
   have nc : ∀ N i, i ∉ PNode.idsList oldCh → ¬ InClaimed oldCh N i := fun _ _ hi hc => hi hc.mem
   have he2 : d2.nodes elm = some ex1 := by rw [hp.frame elm hel (nc _ _ helm)]; exact he1
-  have hcur : oldCh.head?.map PNode.node = none ∨
-      ∃ o, oldCh.head?.map PNode.node = some o ∧ o ∈ ex1.children := by
-    cases oldCh with
-    | nil => exact Or.inl rfl
-    | cons o os => exact Or.inr ⟨o.node, rfl, by rw [hch]; exact List.mem_cons_self⟩
   have hroot : ∀ pl ∈ pls, pl.child.node ∈ PNode.idsList oldCh ∨ d1.next ≤ pl.child.node := by
     intro pl hpl
     rcases hp.roots pl hpl with ⟨o, ho, _, he⟩ | hf
@@ -392,69 +458,132 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
     rcases hroot pl hpl with h1 | h1
     · exact helm (e ▸ h1)
     · omega
-  obtain ⟨w3, ok3, nx3, ne3, sc3, fr3⟩ :=
-    place_spec elm (pls.map (·.child.node)) pls _ d2 ex1 hp.wf he2 hcur hp.roots_nodup hpls
-  rw [hch] at ne3
   have hO := PNode.roots_nodup oldCh h.ids_nodup
+  have helmO : ∀ o ∈ oldCh, o.node ≠ elm := fun o ho e =>
+    helm (e ▸ PNode.mem_ids_of_mem ho (PNode.node_mem_ids o))
   have hRP : (pls.map Placement.toPair).map (·.2) = pls.map (·.child.node) := toPairs_snd pls
-  have hcorr := placeList_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
-    (by rw [hRP]; exact hp.roots_nodup)
-    (fun i c hi => by have := hp.anchored_at i c hi; rwa [Nat.zero_add] at this)
-  rw [hRP, List.head?_map] at hcorr
-  unfold finishChildren
-  dsimp only
-  generalize hR : pls.map (·.child.node) = R at *
-  generalize hd3 : place elm R pls (oldCh.head?.map PNode.node) d2 = d3 at *
-  generalize hL : placeList R (pls.map Placement.toPair) (oldCh.head?.map PNode.node)
-    (oldCh.map PNode.node) = L' at *
-  have hU : ∀ u ∈ oldCh.filter (fun o => decide (o.node ∉ R)),
-      u.node ∈ { ex1 with children := L' }.children ∧ u.node ≠ elm := by
-    intro u hu
-    obtain ⟨hu1, hu2⟩ := List.mem_filter.1 hu
-    simp only [decide_eq_true_eq] at hu2
-    refine ⟨?_, fun e => helm (e ▸ PNode.mem_ids_of_mem hu1 (PNode.node_mem_ids u))⟩
-    rw [← hL]
-    exact placeList_keep R _ _ _ _ (List.mem_map_of_mem hu1) (by rw [hRP]; exact hu2)
-  have hUnd : ((oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node).Nodup :=
-    List.Nodup.sublist (List.filter_sublist.map PNode.node) hO
-  obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := removeAll_spec elm _ d3 _ w3 ne3 hUnd hU
-  have hfilt : L'.filter (fun x => decide (x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node)) = R := by
-    refine Eq.trans ?_ hcorr.1
-    unfold keepIn
-    apply List.filter_congr
-    intro x hx
-    by_cases hxR : x ∈ R
-    · have : x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node := by
-        intro hm; obtain ⟨u, hu, rfl⟩ := List.mem_map.1 hm
-        exact (by simpa using (List.mem_filter.1 hu).2 : u.node ∉ R) hxR
-      rw [decide_eq_true this, decide_eq_true hxR]
-    · have hxO : x ∈ oldCh.map PNode.node := by
-        rw [← hL] at hx
-        rcases placeList_sub R _ _ _ x hx with h1 | h1
-        · exact h1
-        · rw [hRP] at h1; exact absurd h1 hxR
-      obtain ⟨o, ho, rfl⟩ := List.mem_map.1 hxO
-      have : o.node ∈ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node :=
-        List.mem_map_of_mem (List.mem_filter.2 ⟨ho, by simpa using hxR⟩)
-      rw [decide_eq_false (fun hn => hn this), decide_eq_false hxR]
+  have key : ∃ d3, finishChildren elm oldCh pls d2 = (pls.map (·.child), d3) ∧ HeapWF d3 ∧
+      d3.ok = d2.ok ∧ d3.next = d2.next ∧
+      d3.nodes elm = some { ex1 with children := pls.map (·.child.node) } ∧
+      (∀ m, m ≠ elm → SameContent d2 d3 m) ∧
+      (∀ m, m ≠ elm → m ∉ pls.map (·.child.node) → m ∉ oldCh.map PNode.node → d3.nodes m = d2.nodes m) := by
+    unfold finishChildren
+    dsimp only
+    split
+    · -- every old child was reused at its own position: the rest are appended
+      rename_i hstart
+      refine ⟨_, rfl, ?_⟩
+      rw [hstart]
+      obtain ⟨hlen, hidx⟩ := matchedPrefix_spec (pls.map (oldIndexOf oldCh)) 0
+      rw [hstart, List.length_map] at hlen
+      rw [hstart] at hidx
+      have htake : (pls.take oldCh.length).map (·.child.node) = oldCh.map PNode.node := by
+        apply List.ext_getElem (by simp; omega)
+        intro j h1 h2
+        simp only [List.getElem_map, List.getElem_take]
+        have hj := hidx j (by simpa using h2)
+        rw [List.getElem?_map, List.getElem?_eq_getElem (by simp at h1; omega)] at hj
+        simp only [Option.map_some, Option.some.injEq, Nat.zero_add] at hj
+        obtain ⟨j', hj', e, hn⟩ := oldIndexOf_nonneg (by rw [hj]; omega)
+        rw [hj] at e
+        have : j' = j := by omega
+        subst this; exact hn.symm
+      have hR : pls.map (·.child.node) =
+          oldCh.map PNode.node ++ (pls.drop oldCh.length).map (·.child.node) := by
+        rw [← htake, ← List.map_append, List.take_append_drop]
+      have hRnd := hp.roots_nodup
+      rw [hR, List.nodup_append] at hRnd
+      have hdrop : ∀ c ∈ (pls.map (·.child)).drop oldCh.length, c.node ≠ elm ∧
+          ∃ cx, d2.nodes c.node = some cx ∧ cx.parent = none := by
+        intro c hc
+        rw [← List.map_drop] at hc
+        obtain ⟨pl, hpl, rfl⟩ := List.mem_map.1 hc
+        obtain ⟨hne, x, hx, hxp⟩ := hpls pl (List.mem_of_mem_drop hpl)
+        refine ⟨hne, x, hx, ?_⟩
+        rcases hxp with hxp | hxp
+        · exact hxp
+        · obtain ⟨px, hpx, hm⟩ := hp.wf.parent_child _ x elm hx hxp
+          rw [he2] at hpx; cases hpx
+          rw [hch] at hm
+          exact absurd rfl (hRnd.2.2 _ hm _ (List.mem_map_of_mem hpl))
+      have hcs : ((pls.map (·.child)).drop oldCh.length).map PNode.node =
+          (pls.drop oldCh.length).map (·.child.node) := by
+        rw [← List.map_drop, List.map_map]; rfl
+      obtain ⟨w3, ok3, nx3, nd3⟩ := appendAll_spec elm ((pls.map (·.child)).drop oldCh.length) d2 ex1
+        hp.wf he2 (by rw [hcs]; exact hRnd.2.1) hdrop
+      rw [hcs] at nd3
+      refine ⟨w3, ok3, nx3, by rw [nd3, ite_eq_left rfl, hch, ← hR], ?_, ?_⟩
+      · intro m hm
+        unfold SameContent
+        rw [nd3, ite_eq_right hm]
+        split
+        · cases d2.nodes m <;> rfl
+        · rfl
+      · intro m hm hmR _
+        rw [nd3, ite_eq_right hm, ite_eq_right (fun h => hmR (by rw [hR]; exact List.mem_append_right _ h))]
+    · split
+      · -- an anchored child after the prefix: the general placement loop
+        have hcur : oldCh.head?.map PNode.node = none ∨
+            ∃ o, oldCh.head?.map PNode.node = some o ∧ o ∈ ex1.children := by
+          cases oldCh with
+          | nil => exact Or.inl rfl
+          | cons o os => exact Or.inr ⟨o.node, rfl, by rw [hch]; exact List.mem_cons_self⟩
+        obtain ⟨w3, ok3, nx3, ne3, sc3, fr3⟩ :=
+          place_spec elm (pls.map (·.child.node)) pls _ d2 ex1 hp.wf he2 hcur hp.roots_nodup hpls
+        rw [hch] at ne3
+        have hcorr := placeList_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
+          (by rw [hRP]; exact hp.roots_nodup)
+          (fun i c hi => by have := hp.anchored_at i c hi; rwa [Nat.zero_add] at this)
+        rw [hRP, List.head?_map] at hcorr
+        obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := remove_unused w3 ne3 hO helmO hcorr.1
+          (fun x hx => by
+            rcases placeList_sub _ _ _ _ x hx with h1 | h1
+            · exact Or.inl h1
+            · rw [hRP] at h1; exact Or.inr h1)
+          (fun x hx hxR => placeList_keep _ _ _ _ x hx (by rw [hRP]; exact hxR))
+        exact ⟨_, rfl, w4, by rw [ok4, ok3], by rw [nx4, nx3], ne4,
+          fun m hm => (sc3 m hm).trans (sc4 m hm), fun m hm hmR hmO => by rw [fr4 m hm hmO, fr3 m hm hmR]⟩
+      · -- no anchored child after the prefix: keep the longest increasing run
+        have hidx : ∀ i (hi : i < (pls.map (·.child.node)).length),
+            0 ≤ (pls.map (oldIndexOf oldCh)).getD i (-1) →
+            ∃ j, ∃ hj : j < ex1.children.length, (pls.map (oldIndexOf oldCh)).getD i (-1) = j ∧
+              ex1.children[j] = (pls.map (·.child.node))[i] := by
+          intro i hi h0
+          rw [List.length_map] at hi
+          have hg : (pls.map (oldIndexOf oldCh)).getD i (-1) = oldIndexOf oldCh pls[i] := by
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_eq_getElem hi]; rfl
+          rw [hg] at h0 ⊢
+          obtain ⟨j, hj, e, hn⟩ := oldIndexOf_nonneg h0
+          have hj' : j < ex1.children.length := by rw [hch, List.length_map]; exact hj
+          refine ⟨j, hj', e, ?_⟩
+          simp only [hch, List.getElem_map, hn]
+        obtain ⟨w3, ok3, nx3, L', ne3, hk3, hs3, hu3, sc3, fr3⟩ :=
+          placeWithFewestMoves_spec elm (pls.map (·.child.node)) (pls.map (oldIndexOf oldCh)) d2 ex1
+            hp.wf he2 (by rw [hch]; exact hO) hp.roots_nodup
+            (fun x hx => by obtain ⟨pl, hpl, rfl⟩ := List.mem_map.1 hx; exact hpls pl hpl) hidx
+        obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := remove_unused w3 ne3 hO helmO hk3
+          (fun x hx => by rw [← hch]; exact hs3 x hx)
+          (fun x hx _ => hu3 x (by rw [hch]; exact hx))
+        exact ⟨_, rfl, w4, by rw [ok4, ok3], by rw [nx4, nx3], ne4,
+          fun m hm => (sc3 m hm).trans (sc4 m hm), fun m hm hmR hmO => by rw [fr4 m hm hmO, fr3 m hm hmR]⟩
+  obtain ⟨d3, hfc, w3, ok3, nx3, ne3, sc3, fr3⟩ := key
+  rw [hfc]
   have hne : ∀ i ∈ PNode.idsList (pls.map (·.child)), i ≠ elm := by
     intro i hi e; subst e
     rcases hp.ids_range _ hi with hc | hc
     · exact helm hc.mem
     · omega
-  refine ⟨w4, by rw [ok4, ok3, hp.ok], by rw [nx4, nx3], rfl, ?_, ?_, ?_⟩
-  · rw [ne4, hfilt]
+  refine ⟨w3, by rw [ok3, hp.ok], nx3, rfl, ne3, ?_, ?_⟩
   · intro i hi hio hie
-    have hiU : i ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node := by
+    have hiO : i ∉ oldCh.map PNode.node := by
       intro hm; obtain ⟨u, hu, rfl⟩ := List.mem_map.1 hm
-      exact hio (PNode.mem_ids_of_mem (List.mem_filter.1 hu).1 (PNode.node_mem_ids u))
+      exact hio (PNode.mem_ids_of_mem hu (PNode.node_mem_ids u))
     have hiR : i ∉ pls.map (·.child.node) := by
       intro hm; obtain ⟨pl, hpl, rfl⟩ := List.mem_map.1 hm
       rcases hroot pl hpl with h1 | h1
       · exact hio h1
       · omega
-    rw [hR] at hiR
-    rw [fr4 i hie hiU, fr3 i hie hiR, hp.frame i hi (nc _ _ hio)]
-  · exact MirrorsList.frame _ hp.mirrors (fun i hi => (sc3 i (hne i hi)).trans (sc4 i (hne i hi)))
+    rw [fr3 i hie hiR hiO, hp.frame i hi (nc _ _ hio)]
+  · exact MirrorsList.frame _ hp.mirrors (fun i hi => sc3 i (hne i hi))
 
 end Snabbdom

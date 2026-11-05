@@ -7,6 +7,7 @@ import Snabbdom.Proofs.Create
 import Snabbdom.Proofs.PlaceList
 import Snabbdom.Proofs.Place
 import Snabbdom.Proofs.Children
+import Snabbdom.Proofs.PlaceFewest
 import Snabbdom.Proofs.Patch
 import Snabbdom.Proofs.PatchVnode
 import Snabbdom.Proofs.Main

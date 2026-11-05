@@ -6,7 +6,7 @@ parent), `sibling` (whether the host holds an `x-sibling` element after `old`),
 (rendered as by `serialize`). Node ids in `trace` must be allocated as the
 model allocates them: the host is 0, then `old` in pre-order, then the sibling.
 -/
-import Snabbdom
+import Snabbdom.Model
 import Lean.Data.Json
 
 open Lean Snabbdom

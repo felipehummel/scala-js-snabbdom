@@ -119,10 +119,11 @@ vnode is the old one of the next patch.
 | `Proofs/Basic.lean` | Each DOM operation keeps the heap well formed; exact effect of `insertBefore` and `removeChild`. |
 | `Proofs/Attrs.lean` | The selector's `id`/`class` and the Attributes module: after `create` the element's attributes are `renderAttrs`; after `update` they are exactly the new ones. |
 | `Proofs/Create.lean` | `createElm` builds a fresh subtree that shows `v.render` and is a `Valid` input to `patch`. |
-| `Proofs/PlaceList.lean` | The child reordering loop on plain lists: after it, the reused and new children appear in the new order. This is the hardest lemma. |
+| `Proofs/PlaceList.lean` | `placeAroundAnchors`, the reordering loop used when an unkeyed child matched after the common prefix, on plain lists: after it, the reused and new children appear in the new order. This is the hardest lemma. |
 | `Proofs/Place.lean` | The same loop on the DOM heap. |
 | `Proofs/Children.lean` | Removing unused old children; appending new ones; node identity among siblings. |
-| `Proofs/Patch.lean` | The child-matching fold: each new child reuses at most one old child (by position if unkeyed, by key otherwise), and the old children not reused are removed. |
+| `Proofs/PlaceFewest.lean` | `placeWithFewestMoves`: `longestIncreasingRun` returns indexes whose old positions increase, so keeping those children and moving the rest puts all of them in the new order. |
+| `Proofs/Patch.lean` | The child-matching fold: each new child reuses at most one old child (by position if unkeyed, by key otherwise), and the old children not reused are removed. Also the three ways `updateChildren` then places the children: append the new ones when every old child matched in place, `placeAroundAnchors`, or `placeWithFewestMoves`. |
 | `Proofs/PatchVnode.lean` | `patchVnode` and the matching fold, by mutual induction. |
 | `Proofs/Main.lean` | `patch` (including replacing a node with an incompatible one) and `diff_eq_recreate`. |
 | `Axioms.lean` | Fails the build if a main theorem depends on `sorry` or a non-standard axiom. |
