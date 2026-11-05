@@ -68,7 +68,7 @@ object thunk {
   // state.
   private val hooks: Option[Hooks] = Some(
     Hooks(
-      init = Some((vNode: VNode) => init0(vNode.asInstanceOf[VNode.Element])),
+      init = Some((vNode: VNode) => render(vNode.asInstanceOf[VNode.Element])),
       prepatch = Some((oldVNode: PatchedVNode, vNode: VNode) =>
         prepatch0(
           oldVNode.asInstanceOf[PatchedVNode.Element],
@@ -80,7 +80,7 @@ object thunk {
 
   // The thunk's key wins over the rendered vnode's: the next render's thunk
   // carries it, and a patched node with any other key would not match.
-  private def init0(thunk: VNode.Element): VNode = {
+  private def render(thunk: VNode.Element): VNode = {
     val fn = thunk.data.fn
     val args = thunk.data.args
     val vnode = fn.get(args.get)
@@ -96,19 +96,8 @@ object thunk {
   ): VNode = {
     val old = oldVnode.data
     val cur = thunk.data
-    val oldArgs = old.args
-    val args = cur.args
-    val oldFn = old.fn
-    val curFn = cur.fn
-    if (oldFn != curFn || oldArgs != args) {
-      val vnode = curFn.get(args.get)
-      thunk.copy(
-        children = vnode.children,
-        data = vnode.data.copy(key = cur.key, fn = curFn, args = args)
-      )
-    } else {
-      oldVnode.toVNode
-    }
+    if (old.fn != cur.fn || old.args != cur.args) render(thunk)
+    else oldVnode.toVNode
   }
 
 }
