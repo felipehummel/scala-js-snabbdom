@@ -1,12 +1,6 @@
-/-
-The main theorem: `patch` is correct, and the DOM it leaves is the one that
-rendering from scratch (`createElm`) produces.
--/
 import Snabbdom.Proofs.PatchVnode
 
 namespace Snabbdom
-
-/-! ### A patched tree's parent lies outside it -/
 
 /-- The ids of `o` below its root. -/
 def PNode.sub : PNode → List NodeId
@@ -17,7 +11,7 @@ theorem PNode.ids_eq (o : PNode) : o.ids = o.node :: o.sub := by
   cases o <;> simp [PNode.ids, PNode.sub, PNode.node]
 
 mutual
-theorem Repr.children_sub : ∀ (o : PNode) {d : Dom}, Repr d o → ∀ q ∈ o.ids, ∀ qx, d.nodes q = some qx →
+theorem Mirrors.children_sub : ∀ (o : PNode) {d : Dom}, Mirrors d o → ∀ q ∈ o.ids, ∀ qx, d.nodes q = some qx →
     ∀ c ∈ qx.children, c ∈ o.sub
   | .text s n, d, h, q, hq, qx, hqx, c, hc => by
     obtain ⟨x, hx, _, hch⟩ := h
@@ -35,27 +29,27 @@ theorem Repr.children_sub : ∀ (o : PNode) {d : Dom}, Repr d o → ∀ q ∈ o.
     · rw [hx] at hqx; cases hqx; rw [hch] at hc
       obtain ⟨c', hc', rfl⟩ := List.mem_map.1 hc
       exact PNode.mem_ids_of_mem hc' (PNode.node_mem_ids c')
-    · exact ReprList.children_sub ch hl q hq qx hqx c hc
-theorem ReprList.children_sub : ∀ (L : List PNode) {d : Dom}, ReprList d L →
+    · exact MirrorsList.children_sub ch hl q hq qx hqx c hc
+theorem MirrorsList.children_sub : ∀ (L : List PNode) {d : Dom}, MirrorsList d L →
     ∀ q ∈ PNode.idsList L, ∀ qx, d.nodes q = some qx → ∀ c ∈ qx.children, c ∈ PNode.idsList L
   | [], _, _, q, hq, _, _, _, _ => by simp [PNode.idsList] at hq
   | p :: ps, d, h, q, hq, qx, hqx, c, hc => by
     rw [PNode.idsList_cons, List.mem_append] at hq ⊢
     rcases hq with hq | hq
-    · left; rw [PNode.ids_eq]; exact List.mem_cons_of_mem _ (Repr.children_sub p h.1 q hq qx hqx c hc)
-    · right; exact ReprList.children_sub ps h.2 q hq qx hqx c hc
+    · left; rw [PNode.ids_eq]; exact List.mem_cons_of_mem _ (Mirrors.children_sub p h.1 q hq qx hqx c hc)
+    · right; exact MirrorsList.children_sub ps h.2 q hq qx hqx c hc
 end
 
-theorem parent_not_mem {d : Dom} {old : PNode} (hw : HeapWF d) (hr : Repr d old) (hn : old.ids.Nodup)
+theorem parent_not_mem {d : Dom} {old : PNode} (hw : HeapWF d) (hr : Mirrors d old) (hn : old.ids.Nodup)
     {x : DomNode} (hx : d.nodes old.node = some x) {p : NodeId} (hp : x.parent = some p) :
     p ∉ old.ids := by
   intro hm
   obtain ⟨px, hpx, hc⟩ := hw.parent_child _ _ _ hx hp
-  have := Repr.children_sub old hr p hm px hpx _ hc
+  have := Mirrors.children_sub old hr p hm px hpx _ hc
   rw [PNode.ids_eq, List.nodup_cons] at hn
   exact hn.1 this
 
-theorem Repr.node_exists {d : Dom} {o : PNode} (h : Repr d o) : ∃ x, d.nodes o.node = some x := by
+theorem Mirrors.node_exists {d : Dom} {o : PNode} (h : Mirrors d o) : ∃ x, d.nodes o.node = some x := by
   cases o with
   | text s n => obtain ⟨x, hx, _⟩ := h; exact ⟨x, hx⟩
   | comment s n => obtain ⟨x, hx, _⟩ := h; exact ⟨x, hx⟩
@@ -124,8 +118,6 @@ theorem insert_after_replace (a n : NodeId) : ∀ (L : List NodeId), L.Nodup →
       show y :: replaceIn a n ys = (if y = a then n else y) :: replaceIn a n ys
       rw [ite_eq_right hy]
 
-/-! ### The main theorem -/
-
 /-- `patch` is correct: the result is valid, describes `v`, shows `v.render`
 in the DOM, sits where `old` was, and nothing else in the document changed. -/
 theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv : v.WF) :
@@ -141,7 +133,7 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
     (d.parentNode old.node = none → ∃ x, (patch old v d).2.nodes (patch old v d).1.node = some x ∧
       x.parent = none) := by
   obtain ⟨hw, hok, hr, hnd, hbd, hwf⟩ := h
-  obtain ⟨x, hx⟩ := Repr.node_exists hr
+  obtain ⟨x, hx⟩ := Mirrors.node_exists hr
   have hold : old.node ∈ old.ids := PNode.node_mem_ids old
   by_cases hs : sameVnode old v = true
   · have hpe : patch old v d = patchVnode old v d := by simp [patch, hs]
@@ -151,8 +143,8 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
     obtain ⟨nv, d'⟩ := r
     dsimp only at *
     have hle := P.le
-    refine ⟨⟨P.wf, by rw [P.ok, hok], P.repr, P.ids_nodup, ?_, by rw [tv]; exact hv⟩, tv,
-      by have := Repr.shows _ P.repr; rwa [tv] at this, ?_, ?_, ?_⟩
+    refine ⟨⟨P.wf, by rw [P.ok, hok], P.mirrors, P.ids_nodup, ?_, by rw [tv]; exact hv⟩, tv,
+      by have := Mirrors.shows _ P.mirrors; rwa [tv] at this, ?_, ?_, ?_⟩
     · intro i hi
       rcases P.ids_range i hi with h1 | h1
       · have := hbd i h1; omega
@@ -185,13 +177,13 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
     have hnr := cc.ids_range nv.node (PNode.node_mem_ids nv)
     have valid1 : ∀ d2 : Dom, HeapWF d2 → d2.ok = d1.ok → d2.next = d1.next →
         (∀ i ∈ nv.ids, SameContent d1 d2 i) → Valid d2 nv := fun d2 w2 ok2 nx2 sc2 =>
-      ⟨w2, by rw [ok2, cc.ok, hok], Repr.frame nv cc.repr sc2, cc.ids_nodup,
+      ⟨w2, by rw [ok2, cc.ok, hok], Mirrors.frame nv cc.mirrors sc2, cc.ids_nodup,
         fun i hi => by rw [nx2]; exact (cc.ids_range i hi).2, by rw [ctv]; exact hv⟩
     cases hpar : d.parentNode old.node with
     | none =>
       dsimp only
       refine ⟨valid1 d1 cc.wf rfl rfl (fun _ _ => SameContent.of_eq rfl), ctv,
-        by have := Repr.shows _ cc.repr; rwa [ctv] at this, fun i hi _ _ => cc.frame i hi,
+        by have := Mirrors.shows _ cc.mirrors; rwa [ctv] at this, fun i hi _ _ => cc.frame i hi,
         fun p _ hp => (by cases hp), fun _ => ⟨nx, hnx, hnp⟩⟩
     | some p =>
       dsimp only
@@ -238,7 +230,7 @@ theorem patch_correct (old : PNode) (v : VNode) (d : Dom) (h : Valid d old) (hv 
       have nx2 : d2.next = d1.next := by rw [hd2']; simp
       refine ⟨valid1 _ w3 (by rw [ok3, hd2', Dom.preInsert_ok hi]; rfl) (by rw [nx3, nx2])
           (fun i hi => (sc12 i (hnvi i hi)).trans (sc3 i (hnvi i hi))), ctv, ?_, ?_, ?_, ?_⟩
-      · have := Repr.shows _ (Repr.frame nv cc.repr
+      · have := Mirrors.shows _ (Mirrors.frame nv cc.mirrors
           (fun i hi => (sc12 i (hnvi i hi)).trans (sc3 i (hnvi i hi))))
         rwa [ctv] at this
       · intro i hi hio hip

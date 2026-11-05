@@ -1,7 +1,3 @@
-/-
-Lemmas about single DOM operations: what each one changes, and that it keeps
-the heap well formed.
--/
 import Snabbdom.Spec
 
 namespace Snabbdom
@@ -126,12 +122,12 @@ theorem modify_wf (n : NodeId) (f : DomNode → DomNode)
 
 @[simp] theorem setAttr_nodes (n : NodeId) (k v : String) (m : NodeId) :
     (d.setAttr n k v).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = k then some v else x.attrs j }) else d.nodes m := rfl
+      (fun x => { x with attrs := fun j => if j = attrName k then some v else x.attrs j }) else d.nodes m := rfl
 @[simp] theorem setAttr_next (n k v) : (d.setAttr n k v).next = d.next := rfl
 @[simp] theorem setAttr_ok (n k v) : (d.setAttr n k v).ok = d.ok := rfl
 @[simp] theorem removeAttr_nodes (n : NodeId) (k : String) (m : NodeId) :
     (d.removeAttr n k).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = k then none else x.attrs j }) else d.nodes m := rfl
+      (fun x => { x with attrs := fun j => if j = attrName k then none else x.attrs j }) else d.nodes m := rfl
 @[simp] theorem removeAttr_next (n k) : (d.removeAttr n k).next = d.next := rfl
 @[simp] theorem removeAttr_ok (n k) : (d.removeAttr n k).ok = d.ok := rfl
 
@@ -255,7 +251,7 @@ theorem preInsert_wf {p n : NodeId} {ref : Option NodeId} {px nx : DomNode}
       obtain ⟨qx, hqx, hm⟩ := pc c px q hp hcq
       by_cases hqn : q = n
       · -- p is a child of n: the DOM would throw HierarchyRequestError,
-        -- which is not modelled; the heap stays well formed anyway
+        -- which is not modeled; the heap stays well formed anyway
         subst hqn; rw [hn] at hqx; cases hqx
         exact ⟨{ nx with parent := some c }, by simp [hne], hm⟩
       · grind

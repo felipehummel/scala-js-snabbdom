@@ -24,13 +24,9 @@ import scala.concurrent.Future
 import scala.concurrent.Promise
 import scala.scalajs.js
 
-/** Emits cases for the Lean conformance check (see formal/README.md).
-  *
-  * Each case renders a random `old` tree, then records every `DomApi` call
-  * made by `patch(old, new)` and the resulting DOM. The Lean model replays
-  * the case and must make the same calls and leave the same DOM.
-  *
-  * Compiled only when SNABBDOM_CONFORMANCE is set.
+/** Emits the cases formal/Conform.lean replays; the output format is described
+  * there. Run it through formal/conformance.sh, which sets
+  * SNABBDOM_CONFORMANCE: the suite is too slow for the normal test run.
   */
 class ConformanceSuite extends munit.FunSuite {
 
@@ -109,22 +105,29 @@ class ConformanceSuite extends munit.FunSuite {
 
   /** Small alphabets, so that keys, tags and texts collide often: duplicate
     * keys among siblings, keyed and unkeyed siblings mixed, tag changes,
-    * comments and text nodes.
+    * comments and text nodes. Attributes include the `id` and `class` a
+    * selector also sets, and names in upper case, which the DOM lowercases:
+    * both are outside the proved theorem but must still match the model.
     */
   final class CaseGen(seed: Long) {
     private val r = new scala.util.Random(seed)
+    def coin(num: Int, den: Int): Boolean = r.nextInt(den) < num
     private def pick[A](xs: Vector[A]): A = xs(r.nextInt(xs.length))
-    private val sels = Vector("div", "span", "p")
+    private val sels =
+      Vector("div", "span", "p", "div#a", "div.x", "p#b.x.y", "span.x")
     private val keys = Vector("a", "b", "c")
-    private val attrKeys = Vector("title", "lang", "dir")
+    // One spelling per name within a map: a Scala Map holding both `title`
+    // and `TITLE` would set the same DOM attribute twice, in an iteration
+    // order the JSON (sorted by key) does not carry.
+    private val attrKeys = Vector("title", "lang", "dir", "id", "class")
 
     private def attrs(): Map[String, AttrValue] =
       attrKeys
-        .filter(_ => r.nextInt(3) == 0)
+        .filter(_ => coin(1, 3))
         .map { k =>
-          k -> (if (r.nextInt(4) == 0)
-                  AttrValue.BooleanAttrValue(r.nextBoolean())
-                else AttrValue.StringAttrValue(pick(Vector("x", "y"))))
+          (if (coin(1, 6)) k.toUpperCase else k) ->
+            (if (coin(1, 4)) AttrValue.BooleanAttrValue(r.nextBoolean())
+             else AttrValue.StringAttrValue(pick(Vector("x", "y"))))
         }
         .toMap
 
@@ -136,6 +139,12 @@ class ConformanceSuite extends munit.FunSuite {
       ),
       if (depth <= 0) Nil else List.fill(r.nextInt(5))(node(depth - 1))
     )
+
+    def root(depth: Int): VNode = r.nextInt(10) match {
+      case 0 => VNode.Text(pick(Vector("t", "u")))
+      case 1 => VNode.Comment(pick(Vector("c", "d")))
+      case _ => elem(depth)
+    }
 
     def node(depth: Int): VNode = r.nextInt(12) match {
       case 0             => VNode.Comment(pick(Vector("c", "d")))
@@ -182,7 +191,8 @@ class ConformanceSuite extends munit.FunSuite {
         case (k, AttrValue.BooleanAttrValue(b)) => s"[${str(k)},$b]"
       }
       s"""{"sel":${str(sel)},"key":${data.key.fold("null")(str)},""" +
-        s""""attrs":[${attrs.mkString(",")}],"ch":[${ch.map(json).mkString(",")}]}"""
+        s""""attrs":[${attrs
+            .mkString(",")}],"ch":[${ch.map(json).mkString(",")}]}"""
   }
 
   /** Same format as `serialize` in formal/Conform.lean. */
@@ -203,18 +213,41 @@ class ConformanceSuite extends munit.FunSuite {
       s"<$tag$attrs>$children</$tag>"
   }
 
+  private def div(sel: String, attrs: (String, String)*): VNode =
+    VNode.Element(
+      sel,
+      VNodeData(attrs = attrs.map { case (k, v) =>
+        k -> AttrValue.StringAttrValue(v)
+      }.toMap),
+      Nil
+    )
+
+  /** The library counterexamples in formal/Snabbdom/Counterexamples.lean, so
+    * the model is checked against Scala on exactly those inputs.
+    */
+  private val fixedCases: List[(VNode, VNode)] = List(
+    div("div#a", "id" -> "z") -> div("div#a"),
+    div("div", "TITLE" -> "x") -> div("div", "title" -> "y")
+  )
+
   test("emit conformance cases") {
     val gen = new CaseGen(seed = 20261104L)
-    (0 until nCases).foreach { _ =>
-      val old = gen.elem(3)
-      val neu = if (gen.elem(0).key.nonEmpty) gen.mutate(old, 3) else gen.elem(3)
-
+    val randomCases = (0 until nCases).iterator.map { _ =>
+      val old = gen.root(3)
+      val neu = if (gen.coin(2, 3)) gen.mutate(old, 3) else gen.root(3)
+      (old, neu, gen.coin(1, 5))
+    }
+    val cases = fixedCases.iterator.map { case (o, n) =>
+      (o, n, false)
+    } ++ randomCases
+    cases.foreach { case (old, neu, detached) =>
       val api = new RecordingDomApi(DomApi.apply)
       val patch = init(Seq(Attributes.module), Some(api))
       val host = dom.document.createElement("div")
       val placeholder = dom.document.createElement("x-placeholder")
       host.appendChild(placeholder)
       val pv1 = patch(placeholder, old)
+      if (detached) host.removeChild(pv1.node)
 
       // ids: host is 0, the old tree is numbered in pre-order, as createElm
       // allocates them in the model
@@ -231,20 +264,22 @@ class ConformanceSuite extends munit.FunSuite {
       number(pv1)
       api.nextId = next
       api.recording = true
-      patch(pv1, neu)
+      val pv2 = patch(pv1, neu)
       api.recording = false
 
       val trace = api.trace.map(str).mkString(",")
       val domStr = (0 until host.childNodes.length)
         .map(i => serialize(host.childNodes(i)))
-        .mkString
+        .mkString + "|" + serialize(pv2.node)
       println(
-        s"""CONFORMANCE {"old":${json(old)},"new":${json(neu)},"trace":[$trace],"dom":${str(
+        s"""CONFORMANCE {"old":${json(old)},"new":${json(
+            neu
+          )},"detached":$detached,"trace":[$trace],"dom":${str(
             domStr.replace("\"", "\\\"")
           )}}"""
       )
     }
-    println(s"CONFORMANCE-END $nCases")
+    println(s"CONFORMANCE-END ${nCases + fixedCases.length}")
     // The Selenium env drops the tail of the browser console when the run
     // ends, so pad the output and give it time to drain.
     (0 until 200).foreach(_ => println("CONFORMANCE-PAD"))

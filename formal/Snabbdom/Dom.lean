@@ -1,19 +1,12 @@
 /-
-A model of the part of the browser DOM that snabbdom touches.
+The DOM operations snabbdom performs, on a heap of nodes, following the DOM
+standard for the cases snabbdom can reach. A browser would throw on an invalid
+call (`NotFoundError` from `insertBefore` or `removeChild`); the model sets
+`ok := false` instead, and the proofs show that never happens.
 
-The DOM is a heap of nodes addressed by `NodeId`. Each node has a kind (text,
-comment or element), attributes, an ordered list of children and a parent
-pointer. Every `DomApi` method used by `init.scala` is a function on this heap,
-following the DOM standard for the cases snabbdom can reach:
-
-* `insertBefore p n ref` first detaches `n` from its current parent, then puts
-  it before `ref` in `p` (at the end when `ref` is `none`).
-* `insertBefore` and `removeChild` throw `NotFoundError` in a browser when
-  `ref` (resp. the removed child) is not a child of `p`. The model records this
-  by setting `ok := false`; the proofs show it never happens.
-
-Every structural operation is also appended to `trace`, which the conformance
-check compares against the calls the Scala code makes on a real `DomApi`.
+`trace` records the structural calls in the form the conformance check compares
+with Scala's `DomApi`. Attribute writes are not in it: the Scala code makes them
+on the element directly, so the check compares them through the final DOM.
 -/
 
 namespace Snabbdom
@@ -23,7 +16,7 @@ notation "NodeId" => Nat
 inductive Kind where
   | text (s : String)
   | comment (s : String)
-  | elem (sel : String)
+  | elem (tag : String)
   deriving DecidableEq, Repr
 
 structure DomNode where
@@ -32,8 +25,6 @@ structure DomNode where
   children : List NodeId := []
   parent : Option NodeId := none
 
-/-- One call on `DomApi` that changes the DOM. Reads (`parentNode`,
-`nextSibling`, ...) are not recorded. -/
 inductive Op where
   | createElement (n : NodeId) (tag : String)
   | createText (n : NodeId) (s : String)
@@ -46,22 +37,23 @@ inductive Op where
 
 structure Dom where
   nodes : NodeId → Option DomNode
-  /-- Next fresh id. Every allocated node has an id below `next`. -/
   next : NodeId
   /-- `false` once an operation would have thrown in a browser. -/
   ok : Bool := true
   trace : Array Op := #[]
 
-/-- `insertAt n ref l` puts `n` before the first `ref` in `l`, or at the end. -/
 def insertAt (n : NodeId) : Option NodeId → List NodeId → List NodeId
   | none, l => l ++ [n]
   | some _, [] => [n]
   | some r, x :: xs => if x = r then n :: x :: xs else x :: insertAt n (some r) xs
 
-/-- The element following the first `n` in `l`. -/
 def after (n : NodeId) : List NodeId → Option NodeId
   | [] => none
   | x :: xs => if x = n then xs.head? else after n xs
+
+/-- `setAttribute` and `removeAttribute` on an HTML element lowercase the name
+(ASCII only, which is what `Char.toLower` does). -/
+def attrName (k : String) : String := String.ofList (k.toList.map Char.toLower)
 
 namespace Dom
 
@@ -104,7 +96,6 @@ def nextSibling (d : Dom) (n : NodeId) : Option NodeId :=
     | none => none
     | some px => after n px.children
 
-/-- `n` and the siblings after it, in DOM order. -/
 def siblingsFrom (d : Dom) (n : NodeId) : List NodeId :=
   match d.parentNode n with
   | none => [n]
@@ -113,7 +104,6 @@ def siblingsFrom (d : Dom) (n : NodeId) : List NodeId :=
     | none => [n]
     | some px => px.children.dropWhile (· ≠ n)
 
-/-- Remove `n` from its parent, if it has one. -/
 def detach (d : Dom) (n : NodeId) : Dom :=
   match d.parentNode n with
   | none => d
@@ -163,10 +153,10 @@ def setText (d : Dom) (n : NodeId) (s : String) : Dom :=
   | _ => d.fail
 
 def setAttr (d : Dom) (n : NodeId) (k v : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = k then some v else x.attrs j }
+  d.modify n fun x => { x with attrs := fun j => if j = attrName k then some v else x.attrs j }
 
 def removeAttr (d : Dom) (n : NodeId) (k : String) : Dom :=
-  d.modify n fun x => { x with attrs := fun j => if j = k then none else x.attrs j }
+  d.modify n fun x => { x with attrs := fun j => if j = attrName k then none else x.attrs j }
 
 end Dom
 

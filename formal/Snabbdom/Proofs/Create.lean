@@ -1,12 +1,8 @@
-/-
-Framing for `Repr`, `Repr → Shows`, and correctness of `createElm`
-(rendering from scratch).
--/
 import Snabbdom.Proofs.Attrs
 
 namespace Snabbdom
 
-/-! ### What `Repr` looks at -/
+/-! ### What `Mirrors` looks at -/
 
 def DomNode.content (x : DomNode) : Kind × (String → Option String) × List NodeId :=
   (x.kind, x.attrs, x.children)
@@ -48,8 +44,8 @@ theorem PNode.ids_elem (sel : String) (data : Data) (ch : List PNode) (n : NodeI
     (PNode.elem sel data ch n).ids = n :: PNode.idsList ch := by simp [PNode.ids]
 
 mutual
-theorem Repr.frame : ∀ (p : PNode) {d d' : Dom}, Repr d p →
-    (∀ i ∈ p.ids, SameContent d d' i) → Repr d' p
+theorem Mirrors.frame : ∀ (p : PNode) {d d' : Dom}, Mirrors d p →
+    (∀ i ∈ p.ids, SameContent d d' i) → Mirrors d' p
   | .text s n, d, d', h, hs => by
     obtain ⟨x, hx, hk, hc⟩ := h
     obtain ⟨x', hx', hk', _, hc'⟩ := (hs n (by simp [PNode.ids])).get hx
@@ -62,29 +58,29 @@ theorem Repr.frame : ∀ (p : PNode) {d d' : Dom}, Repr d p →
     obtain ⟨x, hx, hk, ha, hc, hl⟩ := h
     obtain ⟨x', hx', hk', ha', hc'⟩ := (hs n (by simp [PNode.ids])).get hx
     exact ⟨x', hx', hk' ▸ hk, ha' ▸ ha, hc' ▸ hc,
-      ReprList.frame ch hl (fun i hi => hs i (by simp [PNode.ids, hi]))⟩
-theorem ReprList.frame : ∀ (ps : List PNode) {d d' : Dom}, ReprList d ps →
-    (∀ i ∈ PNode.idsList ps, SameContent d d' i) → ReprList d' ps
+      MirrorsList.frame ch hl (fun i hi => hs i (by simp [PNode.ids, hi]))⟩
+theorem MirrorsList.frame : ∀ (ps : List PNode) {d d' : Dom}, MirrorsList d ps →
+    (∀ i ∈ PNode.idsList ps, SameContent d d' i) → MirrorsList d' ps
   | [], _, _, _, _ => trivial
   | p :: ps, d, d', h, hs =>
-    ⟨Repr.frame p h.1 (fun i hi => hs i (by simp [PNode.idsList, hi])),
-     ReprList.frame ps h.2 (fun i hi => hs i (by simp [PNode.idsList, hi]))⟩
+    ⟨Mirrors.frame p h.1 (fun i hi => hs i (by simp [PNode.idsList, hi])),
+     MirrorsList.frame ps h.2 (fun i hi => hs i (by simp [PNode.idsList, hi]))⟩
 end
 
 mutual
-theorem Repr.shows : ∀ (p : PNode) {d : Dom}, Repr d p → Shows d p.node p.toVNode.render
-  | .text s n, d, h => by simpa [PNode.toVNode, VNode.render, Shows, PNode.node, Repr] using h
-  | .comment s n, d, h => by simpa [PNode.toVNode, VNode.render, Shows, PNode.node, Repr] using h
+theorem Mirrors.shows : ∀ (p : PNode) {d : Dom}, Mirrors d p → Shows d p.node p.toVNode.render
+  | .text s n, d, h => by simpa [PNode.toVNode, VNode.render, Shows, PNode.node, Mirrors] using h
+  | .comment s n, d, h => by simpa [PNode.toVNode, VNode.render, Shows, PNode.node, Mirrors] using h
   | .elem sel data ch n, d, h => by
     obtain ⟨x, hx, hk, ha, hc, hl⟩ := h
     simp only [PNode.toVNode, VNode.render, Shows, PNode.node]
-    exact ⟨x, hx, hk, ha, hc ▸ ReprList.shows ch hl⟩
-theorem ReprList.shows : ∀ (ps : List PNode) {d : Dom}, ReprList d ps →
+    exact ⟨x, hx, hk, ha, hc ▸ MirrorsList.shows ch hl⟩
+theorem MirrorsList.shows : ∀ (ps : List PNode) {d : Dom}, MirrorsList d ps →
     ShowsList d (ps.map PNode.node) (VNode.renders (PNode.toVNodes ps))
   | [], _, _ => by simp [PNode.toVNodes, VNode.renders, ShowsList]
   | p :: ps, d, h => by
     simp only [List.map_cons, PNode.toVNodes, VNode.renders, ShowsList]
-    exact ⟨Repr.shows p h.1, ReprList.shows ps h.2⟩
+    exact ⟨Mirrors.shows p h.1, MirrorsList.shows ps h.2⟩
 end
 
 /-! ### appendChild in a loop -/
@@ -150,7 +146,7 @@ structure Created (d : Dom) (c : PNode) (d' : Dom) : Prop where
   ok : d'.ok = d.ok
   le : d.next ≤ d'.next
   frame : ∀ i, i < d.next → d'.nodes i = d.nodes i
-  repr : Repr d' c
+  mirrors : Mirrors d' c
   ids_nodup : c.ids.Nodup
   ids_range : ∀ i ∈ c.ids, d.next ≤ i ∧ i < d'.next
   detached : ∃ x, d'.nodes c.node = some x ∧ x.parent = none
@@ -160,7 +156,7 @@ structure CreatedList (d : Dom) (cs : List PNode) (d' : Dom) : Prop where
   ok : d'.ok = d.ok
   le : d.next ≤ d'.next
   frame : ∀ i, i < d.next → d'.nodes i = d.nodes i
-  repr : ReprList d' cs
+  mirrors : MirrorsList d' cs
   ids_nodup : (PNode.idsList cs).Nodup
   ids_range : ∀ i ∈ PNode.idsList cs, d.next ≤ i ∧ i < d'.next
   detached : ∀ c ∈ cs, ∃ x, d'.nodes c.node = some x ∧ x.parent = none
@@ -202,28 +198,33 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
       rfl⟩
   | .elem sel data ch, d, hw, hv => by
     obtain ⟨hattrs, hch⟩ := hv
-    obtain ⟨_, w1, ok1, nx1, nd1, fr1⟩ := createNode_spec d (.elem sel) hw
-    have w1' := Dom.log_wf (.createElement d.next sel) w1
+    let tag := (Selector.parse sel).tag
+    obtain ⟨_, w1, ok1, nx1, nd1, fr1⟩ := createNode_spec d (.elem tag) hw
+    have w1' := Dom.log_wf (.createElement d.next tag) w1
     obtain ⟨cl, htv⟩ := createElms_spec ch _ w1' hch
-    generalize hr : createElms ch ((d.alloc (.elem sel)).2.log (.createElement d.next sel)) = r at cl htv
+    generalize hr : createElms ch ((d.alloc (.elem tag)).2.log (.createElement d.next tag)) = r at cl htv
     obtain ⟨pch, d2⟩ := r
     simp only at cl htv
     have le2 : d.next + 1 ≤ d2.next := by have := cl.le; simpa using this
     have range2 : ∀ i ∈ PNode.idsList pch, d.next + 1 ≤ i ∧ i < d2.next := by
       intro i hi; have := cl.ids_range i hi; simpa using this
-    have frame2 : ∀ i, i < d.next + 1 → d2.nodes i = (d.alloc (.elem sel)).2.nodes i := by
+    have frame2 : ∀ i, i < d.next + 1 → d2.nodes i = (d.alloc (.elem tag)).2.nodes i := by
       intro i hi; have := cl.frame i (by simpa using hi); simpa using this
     have hd : createElm (.elem sel data ch) d = (.elem sel data pch d.next,
-        appendAll d.next pch (moduleCreate (.elem sel data pch d.next) d2)) := by
-      simp only [createElm, Dom.createElement, Dom.alloc_fst, hr]
-    have st3 := moduleCreate_step sel data pch d.next d2
-    generalize hd3 : moduleCreate (.elem sel data pch d.next) d2 = d3 at hd st3
+        appendAll d.next pch (moduleCreate (.elem sel data pch d.next)
+          (setSelectorAttrs d.next (Selector.parse sel) d2))) := by
+      simp only [createElm, Dom.createElement, Dom.alloc_fst, hr, tag]
+    obtain ⟨gs, sts, hgs⟩ := setSelectorAttrs_step d.next (Selector.parse sel) d2
+    have st3 := sts.trans (moduleCreate_step sel data pch d.next _)
+    generalize hd3 : moduleCreate (.elem sel data pch d.next)
+      (setSelectorAttrs d.next (Selector.parse sel) d2) = d3 at hd st3
     rw [hd]
     have w3 := st3.wf cl.wf
-    have hn2 : d2.nodes d.next = some { kind := .elem sel } := by
+    have hn2 : d2.nodes d.next = some { kind := .elem tag } := by
       rw [frame2 d.next (by omega)]; exact nd1
-    have hn3 : d3.nodes d.next = some { kind := .elem sel, attrs := renderAttrs data.attrs } := by
-      rw [st3.nodes, ite_eq_left rfl, hn2]; simp [setAll_empty _ hattrs]
+    have hn3 : d3.nodes d.next = some { kind := .elem tag, attrs := renderAttrs sel data.attrs } := by
+      rw [st3.nodes, ite_eq_left rfl, hn2]
+      simp [hgs, setAll_selector sel _ hattrs]
     have hroots : ∀ c ∈ pch, c.node ≠ d.next ∧ ∃ cx, d3.nodes c.node = some cx ∧ cx.parent = none := by
       intro c hc
       have hr := range2 c.node (PNode.mem_idsList.2 ⟨c, hc, PNode.node_mem_ids c⟩)
@@ -233,7 +234,7 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
     obtain ⟨w4, ok4, next4, nodes4⟩ :=
       appendAll_spec d.next pch d3 _ w3 hn3 cl.roots_nodup hroots
     refine ⟨⟨w4, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
-    · rw [ok4, st3.ok, cl.ok]; simp [ok1]
+    · rw [ok4, st3.ok, cl.ok]; simp
     · rw [next4, st3.next]; omega
     · intro i hi
       have hin : i ≠ d.next := by omega
@@ -244,8 +245,8 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
         omega
       rw [ite_eq_right hnot, st3.other _ hin, frame2 i (by omega)]
       exact fr1 i hi
-    · refine ⟨_, by simp only [PNode.node]; rw [nodes4, ite_eq_left rfl], rfl, rfl, by simp, ?_⟩
-      refine ReprList.frame pch cl.repr (fun i hi => ?_)
+    · refine ⟨_, by rw [nodes4, ite_eq_left rfl], rfl, rfl, by simp, ?_⟩
+      refine MirrorsList.frame pch cl.mirrors (fun i hi => ?_)
       have hr := range2 i hi
       have hin : i ≠ d.next := by omega
       unfold SameContent
@@ -286,8 +287,8 @@ theorem createElms_spec : ∀ (vs : List VNode) (d : Dom), HeapWF d → VNode.WF
     show CreatedList d (c :: cs) d2 ∧ PNode.toVNodes (c :: cs) = v :: vs
     refine ⟨⟨cl.wf, by rw [cl.ok, c1.ok], by have := cl.le; have := c1.le; omega,
       fun i hi => by rw [cl.frame i (by have := c1.le; omega), c1.frame i hi], ?_, ?_, ?_, ?_⟩, ?_⟩
-    · exact ⟨Repr.frame c c1.repr (fun i hi => SameContent.of_eq (cl.frame i (c1.ids_range i hi).2)),
-        cl.repr⟩
+    · exact ⟨Mirrors.frame c c1.mirrors (fun i hi => SameContent.of_eq (cl.frame i (c1.ids_range i hi).2)),
+        cl.mirrors⟩
     · rw [PNode.idsList_cons, List.nodup_append]
       refine ⟨c1.ids_nodup, cl.ids_nodup, fun a ha b hb e => ?_⟩
       subst e
@@ -310,7 +311,7 @@ end
 theorem createElm_shows (v : VNode) (d : Dom) (hw : HeapWF d) (hv : v.WF) :
     Shows (createElm v d).2 (createElm v d).1.node v.render := by
   obtain ⟨c, tv⟩ := createElm_spec v d hw hv
-  have := Repr.shows _ c.repr
+  have := Mirrors.shows _ c.mirrors
   rwa [tv] at this
 
 end Snabbdom

@@ -1,22 +1,17 @@
 /-
-Correctness of `patchVnode` and the child-matching fold.
-
-`Patched d old c d'`: patching `old` produced `c`, the DOM agrees with `c`
-(`Repr`), `c` reuses `old`'s root node, and nothing outside `old`'s subtree
-changed. `patchVnode_spec` proves it by mutual induction with
-`matchChildren_spec`, whose invariant (`MPre`) tracks which old children have
-been claimed so far.
+The matching fold's invariant `MPre` tracks which old children have been
+claimed so far (`C`): a claimed child's subtree is being rewritten by the
+recursive `patchVnode`, so the fold may no longer assume it mirrors the DOM,
+and no later new child may claim it again.
 -/
 import Snabbdom.Proofs.Children
 
 namespace Snabbdom
 
-/-! ### Specifications -/
-
 /-- What `patchVnode` assumes about its `old` argument. -/
 structure PPre (d : Dom) (old : PNode) : Prop where
   wf : HeapWF d
-  repr : Repr d old
+  mirrors : Mirrors d old
   ids_nodup : old.ids.Nodup
   ids_lt : ∀ i ∈ old.ids, i < d.next
   wf_old : old.toVNode.WF
@@ -26,17 +21,16 @@ structure Patched (d : Dom) (old c : PNode) (d' : Dom) : Prop where
   ok : d'.ok = d.ok
   le : d.next ≤ d'.next
   frame : ∀ i, i < d.next → i ∉ old.ids → d'.nodes i = d.nodes i
-  repr : Repr d' c
+  mirrors : Mirrors d' c
   ids_nodup : c.ids.Nodup
   ids_range : ∀ i ∈ c.ids, i ∈ old.ids ∨ (d.next ≤ i ∧ i < d'.next)
   node : c.node = old.node
   parent : ∀ x, d.nodes old.node = some x → ∃ x', d'.nodes old.node = some x' ∧ x'.parent = x.parent
 
 theorem Patched.refl {d : Dom} {old : PNode} (h : PPre d old) : Patched d old old d :=
-  ⟨h.wf, rfl, Nat.le_refl _, fun _ _ _ => rfl, h.repr, h.ids_nodup, fun _ hi => Or.inl hi, rfl,
+  ⟨h.wf, rfl, Nat.le_refl _, fun _ _ _ => rfl, h.mirrors, h.ids_nodup, fun _ hi => Or.inl hi, rfl,
     fun x hx => ⟨x, hx, rfl⟩⟩
 
-/-- `i` is in the subtree of an old child whose root is in `N`. -/
 def InClaimed (oldCh : List PNode) (N : List NodeId) (i : NodeId) : Prop :=
   ∃ o ∈ oldCh, o.node ∈ N ∧ i ∈ o.ids
 
@@ -59,7 +53,7 @@ structure MPre (oldCh : List PNode) (elm n0 : NodeId) (C : List NodeId)
   elm_not : elm ∉ PNode.idsList oldCh
   n0_le : n0 ≤ d.next
   wf_old : ∀ o ∈ oldCh, o.toVNode.WF
-  avail : ∀ o ∈ oldCh, o.node ∉ C → Repr d o ∧ ∃ x, d.nodes o.node = some x ∧ x.parent = some elm
+  avail : ∀ o ∈ oldCh, o.node ∉ C → Mirrors d o ∧ ∃ x, d.nodes o.node = some x ∧ x.parent = some elm
   bykey : ∀ k, ∀ o ∈ byKey k, o ∈ oldCh ∧ o.key = some k ∧ o.node ∉ C
   bykey_nodup : ∀ k, ((byKey k).map PNode.node).Nodup
   unkeyed : ∀ i o, pos ≤ i → oldCh[i]? = some o → o.key = none → o.node ∉ C
@@ -71,7 +65,7 @@ structure MPost (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat
   ok : d'.ok = d.ok
   le : d.next ≤ d'.next
   frame : ∀ i, i < d.next → ¬ InClaimed oldCh (pls.map (·.child.node)) i → d'.nodes i = d.nodes i
-  repr : ReprList d' (pls.map (·.child))
+  mirrors : MirrorsList d' (pls.map (·.child))
   toV : PNode.toVNodes (pls.map (·.child)) = vs
   ids_nodup : (PNode.idsList (pls.map (·.child))).Nodup
   ids_range : ∀ i ∈ PNode.idsList (pls.map (·.child)),
@@ -79,7 +73,7 @@ structure MPost (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat
   roots : ∀ pl ∈ pls, (∃ o ∈ oldCh, o.node ∉ C ∧ pl.child.node = o.node) ∨
     (d.next ≤ pl.child.node ∧ pl.child.node < d'.next)
   roots_nodup : (pls.map (·.child.node)).Nodup
-  anch : ∀ (i : Nat) (c : NodeId), (pls.map Placement.toPair)[i]? = some (true, c) →
+  anchored_at : ∀ (i : Nat) (c : NodeId), (pls.map Placement.toPair)[i]? = some (true, c) →
     (oldCh.map PNode.node)[pos + i]? = some c
   parent : ∀ pl ∈ pls, ∃ x, d'.nodes pl.child.node = some x ∧ (x.parent = none ∨ x.parent = some elm)
 
@@ -88,7 +82,7 @@ structure Step (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat)
     (d : Dom) (pl : Placement) (d1 : Dom) (C' : List NodeId) : Prop where
   ok : d1.ok = d.ok
   le : d.next ≤ d1.next
-  repr : Repr d1 pl.child
+  mirrors : Mirrors d1 pl.child
   ids_nodup : pl.child.ids.Nodup
   toV : pl.child.toVNode = v
   parent : ∃ x, d1.nodes pl.child.node = some x ∧ (x.parent = none ∨ x.parent = some elm)
@@ -99,8 +93,6 @@ structure Step (oldCh : List PNode) (elm : NodeId) (C : List NodeId) (pos : Nat)
     (C' = C ∧ pl.toPair.1 = false ∧ (∀ i, i < d.next → d1.nodes i = d.nodes i) ∧
       (∀ i ∈ pl.child.ids, d.next ≤ i ∧ i < d1.next))
 
-/-! ### Small facts -/
-
 theorem PNode.ids_nodup_of_mem : ∀ {L : List PNode} {o : PNode}, o ∈ L → (PNode.idsList L).Nodup → o.ids.Nodup
   | [], _, ho, _ => by cases ho
   | a :: L, o, ho, hn => by
@@ -109,12 +101,12 @@ theorem PNode.ids_nodup_of_mem : ∀ {L : List PNode} {o : PNode}, o ∈ L → (
     · exact hn.1
     · exact PNode.ids_nodup_of_mem ho hn.2.1
 
-theorem ReprList.mem : ∀ {d : Dom} {L : List PNode} {o : PNode}, ReprList d L → o ∈ L → Repr d o
+theorem MirrorsList.mem : ∀ {d : Dom} {L : List PNode} {o : PNode}, MirrorsList d L → o ∈ L → Mirrors d o
   | _, [], _, _, ho => by cases ho
   | _, a :: L, o, h, ho => by
     rcases List.mem_cons.1 ho with rfl | ho
     · exact h.1
-    · exact ReprList.mem h.2 ho
+    · exact MirrorsList.mem h.2 ho
 
 theorem WFs_mem : ∀ {L : List PNode} {o : PNode}, VNode.WFs (PNode.toVNodes L) → o ∈ L → o.toVNode.WF
   | [], _, _, ho => by cases ho
@@ -130,8 +122,6 @@ theorem MPre.ppre {oldCh elm n0 C byKey pos d} (h : MPre oldCh elm n0 C byKey po
     fun i hi => by have := h.ids_lt i (PNode.mem_ids_of_mem ho hi); have := h.n0_le; omega,
     h.wf_old o ho⟩
 
-/-! ### Steps of the fold -/
-
 theorem step_claim {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKey pos d)
     {o c : PNode} {d1 : Dom} {byKey' : String → List PNode} (pl : Placement)
     (ho : o ∈ oldCh) (hoC : o.node ∉ C) (hP : Patched d o c d1) (htv : c.toVNode = v)
@@ -143,7 +133,7 @@ theorem step_claim {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKey
   subst hpl
   obtain ⟨_, x, hx, hxp⟩ := h.avail o ho hoC
   obtain ⟨x', hx', hxp'⟩ := hP.parent x hx
-  refine ⟨⟨hP.ok, hP.le, hP.repr, hP.ids_nodup, htv,
+  refine ⟨⟨hP.ok, hP.le, hP.mirrors, hP.ids_nodup, htv,
     ⟨x', by rw [hP.node]; exact hx', Or.inr (hxp'.trans hxp)⟩,
     Or.inl ⟨o, ho, hoC, rfl, hP.node, hP.frame, hP.ids_range, hanch⟩⟩, ?_⟩
   have hle := hP.le; have hn0 := h.n0_le
@@ -154,7 +144,7 @@ theorem step_claim {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKey
     have hfr : ∀ i ∈ o'.ids, d1.nodes i = d.nodes i := fun i hi => hP.frame i
       (by have := h.ids_lt i (PNode.mem_ids_of_mem ho' hi); omega)
       (fun hio => hC.1 (by rw [PNode.ids_inj oldCh h.ids_nodup ho' ho hi hio]))
-    exact ⟨Repr.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
+    exact ⟨Mirrors.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
       by rw [hfr _ (PNode.node_mem_ids o')]; exact hy, hyp⟩
   · intro i o' hi ho' hk
     simp only [List.mem_cons, not_or]
@@ -164,7 +154,7 @@ theorem step_create {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKe
     {c : PNode} {d1 : Dom} (hc : Created d c d1) (htv : c.toVNode = v) :
     Step oldCh elm C pos v d (.movable c) d1 C ∧ MPre oldCh elm n0 C byKey (pos + 1) d1 := by
   obtain ⟨x, hx, hxp⟩ := hc.detached
-  refine ⟨⟨hc.ok, hc.le, hc.repr, hc.ids_nodup, htv, ⟨x, hx, Or.inl hxp⟩,
+  refine ⟨⟨hc.ok, hc.le, hc.mirrors, hc.ids_nodup, htv, ⟨x, hx, Or.inl hxp⟩,
     Or.inr ⟨rfl, rfl, hc.frame, hc.ids_range⟩⟩, ?_⟩
   have hle := hc.le; have hn0 := h.n0_le
   refine ⟨hc.wf, h.ids_nodup, h.ids_lt, h.elm_lt, h.elm_not, by omega, h.wf_old, ?_, h.bykey,
@@ -173,7 +163,7 @@ theorem step_create {oldCh elm n0 C byKey pos v d} (h : MPre oldCh elm n0 C byKe
     obtain ⟨hr', y, hy, hyp⟩ := h.avail o' ho' hC
     have hfr : ∀ i ∈ o'.ids, d1.nodes i = d.nodes i := fun i hi => hc.frame i
       (by have := h.ids_lt i (PNode.mem_ids_of_mem ho' hi); omega)
-    exact ⟨Repr.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
+    exact ⟨Mirrors.frame o' hr' (fun i hi => SameContent.of_eq (hfr i hi)), y,
       by rw [hfr _ (PNode.node_mem_ids o')]; exact hy, hyp⟩
   · intro i o' hi ho' hk; exact h.unkeyed i o' (by omega) ho' hk
 
@@ -318,8 +308,8 @@ theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
     rcases hs.kind with ⟨o, ho, _, _, hnode, hfr, _, _⟩ | ⟨_, _, hfr, _⟩
     · exact hfr i hi (fun hio => hnc ⟨o, ho, by simp [hnode], hio⟩)
     · exact hfr i hi
-  · exact ⟨Repr.frame _ hs.repr (fun i hi => SameContent.of_eq (hr.frame i (hfree i hi).1 (hfree i hi).2)),
-      hr.repr⟩
+  · exact ⟨Mirrors.frame _ hs.mirrors (fun i hi => SameContent.of_eq (hr.frame i (hfree i hi).1 (hfree i hi).2)),
+      hr.mirrors⟩
   · simp only [List.map_cons, PNode.toVNodes, hs.toV, hr.toV]
   · simp only [List.map_cons]
     rw [PNode.idsList_cons, List.nodup_append]
@@ -373,7 +363,7 @@ theorem mpost_cons {oldCh elm n0 C byKey pos v vs d pl d1 C' pls d2}
       · rw [hi] at hf; cases hf
     | succ i =>
       simp only [List.map_cons, List.getElem?_cons_succ] at hi
-      have := hr.anch i c hi
+      have := hr.anchored_at i c hi
       rwa [show pos + 1 + i = pos + (i + 1) by omega] at this
   · intro pl' hpl'
     rcases List.mem_cons.1 hpl' with rfl | hpl'
@@ -394,7 +384,7 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
     (finishChildren elm oldCh pls d2).2.nodes elm = some { ex1 with children := pls.map (·.child.node) } ∧
     (∀ i, i < d1.next → i ∉ PNode.idsList oldCh → i ≠ elm →
       (finishChildren elm oldCh pls d2).2.nodes i = d1.nodes i) ∧
-    ReprList (finishChildren elm oldCh pls d2).2 (pls.map (·.child)) := by
+    MirrorsList (finishChildren elm oldCh pls d2).2 (pls.map (·.child)) := by
   have hel := h.elm_lt; have helm := h.elm_not
   have nc : ∀ N i, i ∉ PNode.idsList oldCh → ¬ InClaimed oldCh N i := fun _ _ hi hc => hi hc.mem
   have he2 : d2.nodes elm = some ex1 := by rw [hp.frame elm hel (nc _ _ helm)]; exact he1
@@ -420,15 +410,15 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
   rw [hch] at ne3
   have hO := PNode.roots_nodup oldCh h.ids_nodup
   have hRP : (pls.map Placement.toPair).map (·.2) = pls.map (·.child.node) := toPairs_snd pls
-  have hcorr := placeL_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
+  have hcorr := placeList_correct (oldCh.map PNode.node) (pls.map Placement.toPair) hO
     (by rw [hRP]; exact hp.roots_nodup)
-    (fun i c hi => by have := hp.anch i c hi; rwa [Nat.zero_add] at this)
+    (fun i c hi => by have := hp.anchored_at i c hi; rwa [Nat.zero_add] at this)
   rw [hRP, List.head?_map] at hcorr
   unfold finishChildren
   dsimp only
   generalize hR : pls.map (·.child.node) = R at *
   generalize hd3 : place elm R pls (oldCh.head?.map PNode.node) d2 = d3 at *
-  generalize hL : placeL R (pls.map Placement.toPair) (oldCh.head?.map PNode.node)
+  generalize hL : placeList R (pls.map Placement.toPair) (oldCh.head?.map PNode.node)
     (oldCh.map PNode.node) = L' at *
   have hU : ∀ u ∈ oldCh.filter (fun o => decide (o.node ∉ R)),
       u.node ∈ { ex1 with children := L' }.children ∧ u.node ≠ elm := by
@@ -437,13 +427,13 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
     simp only [decide_eq_true_eq] at hu2
     refine ⟨?_, fun e => helm (e ▸ PNode.mem_ids_of_mem hu1 (PNode.node_mem_ids u))⟩
     rw [← hL]
-    exact placeL_keep R _ _ _ _ (List.mem_map_of_mem hu1) (by rw [hRP]; exact hu2)
+    exact placeList_keep R _ _ _ _ (List.mem_map_of_mem hu1) (by rw [hRP]; exact hu2)
   have hUnd : ((oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node).Nodup :=
     List.Nodup.sublist (List.filter_sublist.map PNode.node) hO
   obtain ⟨w4, ok4, nx4, ne4, sc4, fr4⟩ := removeAll_spec elm _ d3 _ w3 ne3 hUnd hU
   have hfilt : L'.filter (fun x => decide (x ∉ (oldCh.filter (fun o => decide (o.node ∉ R))).map PNode.node)) = R := by
     refine Eq.trans ?_ hcorr.1
-    unfold fR
+    unfold keepIn
     apply List.filter_congr
     intro x hx
     by_cases hxR : x ∈ R
@@ -453,7 +443,7 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
       rw [decide_eq_true this, decide_eq_true hxR]
     · have hxO : x ∈ oldCh.map PNode.node := by
         rw [← hL] at hx
-        rcases placeL_sub R _ _ _ x hx with h1 | h1
+        rcases placeList_sub R _ _ _ x hx with h1 | h1
         · exact h1
         · rw [hRP] at h1; exact absurd h1 hxR
       obtain ⟨o, ho, rfl⟩ := List.mem_map.1 hxO
@@ -478,6 +468,6 @@ theorem finish_spec {oldCh : List PNode} {elm : NodeId} {byKey : String → List
       · omega
     rw [hR] at hiR
     rw [fr4 i hie hiU, fr3 i hie hiR, hp.frame i hi (nc _ _ hio)]
-  · exact ReprList.frame _ hp.repr (fun i hi => (sc3 i (hne i hi)).trans (sc4 i (hne i hi)))
+  · exact MirrorsList.frame _ hp.mirrors (fun i hi => (sc3 i (hne i hi)).trans (sc4 i (hne i hi)))
 
 end Snabbdom

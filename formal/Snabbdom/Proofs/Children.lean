@@ -1,7 +1,3 @@
-/-
-Pieces of child reconciliation: node identity in a child list, removal,
-create-and-append, and what `placeL` keeps.
--/
 import Snabbdom.Proofs.Place
 
 namespace Snabbdom
@@ -77,36 +73,36 @@ theorem span_cons {α} (p : α → Bool) (l s r : List α) (o : α) (h : l.span 
   have := span_loop_cons p l [] s r o h
   simpa using this
 
-/-! ### What `placeL` keeps and adds -/
+/-! ### What `placeList` keeps and adds -/
 
-theorem placeL_keep (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur : Option NodeId)
-    (L : List NodeId) (x : NodeId), x ∈ L → x ∉ P.map (·.2) → x ∈ placeL R P cur L
+theorem placeList_keep (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur : Option NodeId)
+    (L : List NodeId) (x : NodeId), x ∈ L → x ∉ P.map (·.2) → x ∈ placeList R P cur L
   | [], _, _, _, h, _ => h
   | (true, c) :: rest, _, L, x, h, hn => by
     simp only [List.map_cons, List.mem_cons, not_or] at hn
-    exact placeL_keep R rest _ L x h hn.2
+    exact placeList_keep R rest _ L x h hn.2
   | (false, c) :: rest, cur, L, x, h, hn => by
     simp only [List.map_cons, List.mem_cons, not_or] at hn
-    simp only [placeL]
+    simp only [placeList]
     split
-    · exact placeL_keep R rest _ L x h hn.2
-    · apply placeL_keep R rest _ _ x _ hn.2
+    · exact placeList_keep R rest _ L x h hn.2
+    · apply placeList_keep R rest _ _ x _ hn.2
       rw [mem_insertAt]; exact Or.inr ((List.mem_erase_of_ne hn.1).2 h)
 
-theorem placeL_sub (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur : Option NodeId)
-    (L : List NodeId) (x : NodeId), x ∈ placeL R P cur L → x ∈ L ∨ x ∈ P.map (·.2)
+theorem placeList_sub (R : List NodeId) : ∀ (P : List (Bool × NodeId)) (cur : Option NodeId)
+    (L : List NodeId) (x : NodeId), x ∈ placeList R P cur L → x ∈ L ∨ x ∈ P.map (·.2)
   | [], _, _, _, h => Or.inl h
   | (true, c) :: rest, _, L, x, h => by
-    rcases placeL_sub R rest _ L x h with h | h
+    rcases placeList_sub R rest _ L x h with h | h
     · exact Or.inl h
     · exact Or.inr (List.mem_cons_of_mem _ h)
   | (false, c) :: rest, cur, L, x, h => by
-    simp only [placeL] at h
+    simp only [placeList] at h
     split at h
-    · rcases placeL_sub R rest _ L x h with h | h
+    · rcases placeList_sub R rest _ L x h with h | h
       · exact Or.inl h
       · exact Or.inr (List.mem_cons_of_mem _ h)
-    · rcases placeL_sub R rest _ _ x h with h | h
+    · rcases placeList_sub R rest _ _ x h with h | h
       · rw [mem_insertAt] at h
         rcases h with rfl | h
         · exact Or.inr List.mem_cons_self
@@ -190,7 +186,7 @@ theorem createAndInsert_spec (elm : NodeId) : ∀ (vs : List VNode) (d : Dom) (e
     (createAndInsert elm vs d).2.nodes elm =
       some { ex with children := ex.children ++ (createAndInsert elm vs d).1.map PNode.node } ∧
     (∀ i, i < d.next → i ≠ elm → (createAndInsert elm vs d).2.nodes i = d.nodes i) ∧
-    ReprList (createAndInsert elm vs d).2 (createAndInsert elm vs d).1 ∧
+    MirrorsList (createAndInsert elm vs d).2 (createAndInsert elm vs d).1 ∧
     (PNode.idsList (createAndInsert elm vs d).1).Nodup ∧
     (∀ i ∈ PNode.idsList (createAndInsert elm vs d).1, d.next ≤ i ∧ i < (createAndInsert elm vs d).2.next) ∧
     PNode.toVNodes (createAndInsert elm vs d).1 = vs
@@ -239,7 +235,7 @@ theorem createAndInsert_spec (elm : NodeId) : ∀ (vs : List VNode) (d : Dom) (e
     · intro i hi1 hie
       rw [fr i (by omega) hie, hd2, hN, ite_eq_right hie, ite_eq_right (by omega)]
       exact c1.frame i hi1
-    · refine ⟨Repr.frame p c1.repr (fun i hi' => ?_), rp⟩
+    · refine ⟨Mirrors.frame p c1.mirrors (fun i hi' => ?_), rp⟩
       have := c1.ids_range i hi'
       have hie : i ≠ elm := by omega
       exact SameContent.trans (sc12 i hie) (SameContent.of_eq (fr i (by omega) hie))

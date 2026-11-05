@@ -1,7 +1,3 @@
-/-
-`place` on the DOM heap does what `placeL` does to the parent's child list,
-and touches nothing else except the parent pointers of the placed nodes.
--/
 import Snabbdom.Proofs.PlaceList
 import Snabbdom.Proofs.Create
 
@@ -35,12 +31,12 @@ theorem after_mem (c x : NodeId) (L : List NodeId) (h : after c L = some x) : x 
       | cons z zs => simp at h; subst h; simp
     · exact List.mem_cons_of_mem _ (ih h)
 
-theorem refOf_mem (R L : List NodeId) (cur : Option NodeId) (x : NodeId)
-    (h : refOf R L cur = some x) : x ∈ L := by
+theorem nextReconciledIn_mem (R L : List NodeId) (cur : Option NodeId) (x : NodeId)
+    (h : nextReconciledIn R L cur = some x) : x ∈ L := by
   cases cur with
-  | none => simp [refOf] at h
+  | none => simp [nextReconciledIn] at h
   | some o =>
-    simp only [refOf] at h
+    simp only [nextReconciledIn] at h
     exact (List.dropWhile_sublist _).subset (List.mem_of_find?_eq_some h)
 
 namespace Dom
@@ -64,10 +60,10 @@ theorem nextSibling_eq {d : Dom} (h : HeapWF d) {p : NodeId} {px : DomNode} (hp 
 theorem nextReconciledNode_eq {d : Dom} (h : HeapWF d) {p : NodeId} {px : DomNode}
     (hp : d.nodes p = some px) (R : List NodeId) (cur : Option NodeId)
     (hcur : cur = none ∨ ∃ o, cur = some o ∧ o ∈ px.children) :
-    nextReconciledNode d R cur = refOf R px.children cur := by
+    nextReconciledNode d R cur = nextReconciledIn R px.children cur := by
   rcases hcur with rfl | ⟨o, rfl, ho⟩
   · rfl
-  · simp only [nextReconciledNode, refOf, siblingsFrom, parent_of_mem h hp ho, get_eq, hp]
+  · simp only [nextReconciledNode, nextReconciledIn, siblingsFrom, parent_of_mem h hp ho, get_eq, hp]
 
 end Dom
 
@@ -81,11 +77,11 @@ theorem place_spec (elm : NodeId) (R : List NodeId) :
     HeapWF (place elm R P cur d) ∧ (place elm R P cur d).ok = d.ok ∧
     (place elm R P cur d).next = d.next ∧
     (place elm R P cur d).nodes elm =
-      some { ex with children := placeL R (P.map Placement.toPair) cur ex.children } ∧
+      some { ex with children := placeList R (P.map Placement.toPair) cur ex.children } ∧
     (∀ m, m ≠ elm → SameContent d (place elm R P cur d) m) ∧
     (∀ m, m ≠ elm → m ∉ P.map (·.child.node) → (place elm R P cur d).nodes m = d.nodes m)
   | [], cur, d, ex, hw, he, _, _, _ => by
-    simp only [place, List.map_nil, placeL]
+    simp only [place, List.map_nil, placeList]
     exact ⟨hw, trivial, trivial, by rw [he], fun m _ => SameContent.of_eq rfl, fun _ _ _ => trivial⟩
   | .anchored c :: rest, cur, d, ex, hw, he, _, hnd, hP => by
     obtain ⟨_, cx, hcx, hpar⟩ := hP _ List.mem_cons_self
@@ -98,7 +94,7 @@ theorem place_spec (elm : NodeId) (R : List NodeId) :
       | some o => exact Or.inr ⟨o, rfl, after_mem _ _ _ h⟩
     obtain ⟨w, ok, nx, ne, sc, fr⟩ := place_spec elm R rest _ d ex hw he hcur' hnd.2
       (fun pl hpl => hP pl (List.mem_cons_of_mem _ hpl))
-    simp only [place, List.map_cons, Placement.toPair, placeL]
+    simp only [place, List.map_cons, Placement.toPair, placeList]
     rw [← hns]
     exact ⟨w, ok, nx, ne, sc, fun m hm hm' => fr m hm (fun h => hm' (List.mem_cons_of_mem _ h))⟩
   | .movable c :: rest, cur, d, ex, hw, he, hcur, hnd, hP => by
@@ -109,7 +105,7 @@ theorem place_spec (elm : NodeId) (R : List NodeId) :
         (x.parent = none ∨ x.parent = some elm) := fun pl hpl => hP pl (List.mem_cons_of_mem _ hpl)
     have hns : d.nextSibling c.node = after c.node ex.children := Dom.nextSibling_eq hw he hcx hpar
     have hnr := Dom.nextReconciledNode_eq hw he R cur hcur
-    simp only [place, List.map_cons, Placement.toPair, placeL]
+    simp only [place, List.map_cons, Placement.toPair, placeList]
     rw [hnr]
     split
     · rename_i heq
@@ -121,9 +117,9 @@ theorem place_spec (elm : NodeId) (R : List NodeId) :
       rw [← hns]
       exact ⟨w, ok, nx, ne, sc, fun m hm hm' => fr m hm (fun h => hm' (List.mem_cons_of_mem _ h))⟩
     · rename_i hne
-      let ref := refOf R ex.children cur
+      let ref := nextReconciledIn R ex.children cur
       have hi : Dom.InsertOk (d.log (.insertBefore elm c.node ref)) elm c.node ref ex cx :=
-        ⟨he, hcx, hce, hpar, fun r hr => ⟨refOf_mem R _ cur r hr, fun e => hne (by subst e; exact hr)⟩⟩
+        ⟨he, hcx, hce, hpar, fun r hr => ⟨nextReconciledIn_mem R _ cur r hr, fun e => hne (by subst e; exact hr)⟩⟩
       have hwl := Dom.log_wf (.insertBefore elm c.node ref) hw
       have hN := Dom.preInsert_nodes hwl hi
       let d1 := d.insertBefore elm c.node ref

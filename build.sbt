@@ -63,7 +63,7 @@ lazy val snabbdom = (project
       "org.scalacheck" %%% "scalacheck" % scalacheckVersion % Test,
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.0.0" % Test
     ),
-    // Cases for the Lean conformance check (formal/conformance.sh).
+    // Set by formal/conformance.sh; the suite is too slow for the normal test run.
     Test / unmanagedSourceDirectories ++= {
       if (sys.env.contains("SNABBDOM_CONFORMANCE"))
         Seq(baseDirectory.value / "src" / "conformance" / "scala")

@@ -1,6 +1,3 @@
-/-
-`patchVnode` is correct: mutual induction with the child-matching fold.
--/
 import Snabbdom.Proofs.Patch
 
 namespace Snabbdom
@@ -18,7 +15,7 @@ theorem text_patched {d : Dom} {os s : String} {n : NodeId} (h : PPre d (.text o
   by_cases e : os = s
   · subst e; simp only [ne_eq, not_true_eq_false, ite_false]; exact Patched.refl h
   · rw [ite_eq_left e]
-    obtain ⟨x, hx, hk, hc⟩ := h.repr
+    obtain ⟨x, hx, hk, hc⟩ := h.mirrors
     rw [Dom.setText_text n s os x hx hk]
     refine ⟨Dom.modify_wf n _ (fun _ => ⟨rfl, rfl⟩) (Dom.log_wf _ h.wf), by simp, by simp, ?_,
       ⟨{ x with kind := .text s }, by simp [hx], rfl, hc⟩, by simp [PNode.ids], fun i hi => Or.inl hi, rfl, ?_⟩
@@ -33,12 +30,12 @@ theorem text_patched {d : Dom} {os s : String} {n : NodeId} (h : PPre d (.text o
 theorem elem_patched {d d' : Dom} {osel : String} {odata data : Data} {oldCh newCh : List PNode}
     {elm : NodeId} (h : PPre d (.elem osel odata oldCh elm)) {ex : DomNode} (hex : d.nodes elm = some ex)
     (w : HeapWF d') (ok : d'.ok = d.ok) (le : d.next ≤ d'.next)
-    (he' : d'.nodes elm = some { ex with attrs := renderAttrs data.attrs, children := newCh.map PNode.node })
+    (he' : d'.nodes elm = some { ex with attrs := renderAttrs osel data.attrs, children := newCh.map PNode.node })
     (fr : ∀ i, i < d.next → i ∉ (PNode.elem osel odata oldCh elm).ids → d'.nodes i = d.nodes i)
-    (rp : ReprList d' newCh) (nd : (PNode.idsList newCh).Nodup)
+    (rp : MirrorsList d' newCh) (nd : (PNode.idsList newCh).Nodup)
     (rg : ∀ i ∈ PNode.idsList newCh, i ∈ PNode.idsList oldCh ∨ (d.next ≤ i ∧ i < d'.next)) :
     Patched d (.elem osel odata oldCh elm) (.elem osel data newCh elm) d' := by
-  obtain ⟨x, hx, hk, _, _, _⟩ := h.repr
+  obtain ⟨x, hx, hk, _, _, _⟩ := h.mirrors
   rw [hex] at hx; cases hx
   have hnd := h.ids_nodup; rw [PNode.ids_elem, List.nodup_cons] at hnd
   have helm := h.ids_lt elm (by simp [PNode.ids])
@@ -74,7 +71,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
   obtain ⟨hattrs, hch⟩ := hv
   have hwo := h.wf_old
   simp only [PNode.toVNode, VNode.WF] at hwo
-  obtain ⟨ex, hex, hk, hea, hec, hrl⟩ := h.repr
+  obtain ⟨ex, hex, hk, hea, hec, hrl⟩ := h.mirrors
   obtain ⟨g, hst, hg⟩ := moduleUpdate_step osel odata oldCh elm osel data ch d
   have hnd := h.ids_nodup; rw [PNode.ids_elem, List.nodup_cons] at hnd
   have helm : elm < d.next := h.ids_lt elm (by simp [PNode.ids])
@@ -85,11 +82,11 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
       fun hm => hi (by rw [PNode.ids_elem]; exact List.mem_cons_of_mem _ hm)⟩
   rw [patchVnode, ite_eq_right heq]
   generalize hd1 : moduleUpdate (.elem osel odata oldCh elm) (.elem osel data ch) d = d1 at hst
-  have he1 : d1.nodes elm = some { ex with attrs := renderAttrs data.attrs } := by
+  have he1 : d1.nodes elm = some { ex with attrs := renderAttrs osel data.attrs } := by
     rw [hst.nodes, ite_eq_left rfl, hex]; simp [hea, hg hwo.1 hattrs]
   have fr1 : ∀ i, i ≠ elm → d1.nodes i = d.nodes i := fun i hi => hst.other i hi
   have w1 := hst.wf h.wf
-  have rl1 : ReprList d1 oldCh := ReprList.frame oldCh hrl
+  have rl1 : MirrorsList d1 oldCh := MirrorsList.frame oldCh hrl
     (fun i hi => SameContent.of_eq (fr1 i (fun e => hnd.1 (e ▸ hi))))
   have nx1 : d1.next = d.next := hst.next
   dsimp only
@@ -147,7 +144,7 @@ theorem patch_elem (osel : String) (odata data : Data) (oldCh : List PNode) (elm
           refine ⟨w1, hnd.2, fun i hi => by rw [nx1]; exact hidl i hi, by rw [nx1]; exact helm, hnd.1,
             Nat.le_refl _, fun o' ho' => WFs_mem hwo.2 ho', ?_, ?_, ?_, ?_⟩
           · intro o' ho' _
-            refine ⟨ReprList.mem rl1 ho', ?_⟩
+            refine ⟨MirrorsList.mem rl1 ho', ?_⟩
             have hm : o'.node ∈ ex.children := by rw [hec]; exact List.mem_map_of_mem ho'
             obtain ⟨y, hy, hyp⟩ := h.wf.child_parent elm ex o'.node hex hm
             have hne : o'.node ≠ elm := fun e => hnd.1 (e ▸ PNode.mem_ids_of_mem ho' (PNode.node_mem_ids o'))

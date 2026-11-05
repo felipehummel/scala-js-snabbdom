@@ -1,13 +1,9 @@
 /-
-Conformance check between the Lean model and the Scala implementation.
-
-Input: one JSON object per line, written by the Scala `ConformanceSuite`
-(snabbdom/src/conformance). Each case has the old vnode, the new vnode, the
-`DomApi` calls the Scala `patch(old, new)` made, and the resulting DOM.
-
-For each case this program renders `old` with the model, runs the model's
-`patch old new`, and checks that it makes exactly the same `DomApi` calls and
-leaves exactly the same DOM.
+Input: one JSON object per line from the Scala `ConformanceSuite`, with fields
+`old` and `new` (vnodes), `detached` (whether `old` was patched outside any
+parent), `trace` (Scala's `DomApi` calls, rendered as by `Op.render`) and `dom`
+(rendered as by `serialize`). Node ids in `trace` must be allocated as the
+model allocates them: the host is 0, then `old` in pre-order.
 -/
 import Snabbdom
 import Lean.Data.Json
@@ -43,10 +39,11 @@ def Op.render : Op → String
   | .setText n s => s!"st {n} {s}"
 
 partial def attrKeys : VNode → List String
-  | .elem _ d ch => d.attrs.map (·.1) ++ ch.flatMap attrKeys
+  | .elem _ d ch => d.attrs.map (attrName ·.1) ++ ch.flatMap attrKeys
   | _ => []
 
-/-- Same format as `ConformanceSuite.serialize` on the Scala side. -/
+/-- Same format as `ConformanceSuite.serialize` on the Scala side, which lists
+every attribute; `keys` must cover every name the model can have set. -/
 partial def serialize (d : Dom) (keys : List String) (n : NodeId) : String :=
   match d.get n with
   | none => "?"
@@ -54,10 +51,10 @@ partial def serialize (d : Dom) (keys : List String) (n : NodeId) : String :=
     match x.kind with
     | .text s => "\"" ++ s ++ "\""
     | .comment s => "<!--" ++ s ++ "-->"
-    | .elem sel =>
+    | .elem tag =>
       let attrs := keys.filterMap fun k => (x.attrs k).map fun v => s!" {k}=\"{v}\""
-      "<" ++ sel ++ String.join attrs ++ ">" ++
-        String.join (x.children.map (serialize d keys)) ++ "</" ++ sel ++ ">"
+      "<" ++ tag ++ String.join attrs ++ ">" ++
+        String.join (x.children.map (serialize d keys)) ++ "</" ++ tag ++ ">"
 
 structure Outcome where
   ok : Bool
@@ -68,16 +65,17 @@ def runCase (line : String) : Except String Outcome := do
   let old ← parseVNode (← j.getObjVal? "old")
   let new ← parseVNode (← j.getObjVal? "new")
   let scalaTrace ← (← (← j.getObjVal? "trace").getArr?).toList.mapM (·.getStr?)
+  let detached ← j.getObjValAs? Bool "detached"
   let scalaDom ← j.getObjValAs? String "dom"
-  -- node 0 is the host element; the old tree is rendered into it
   let (host, d) := Dom.empty.alloc (.elem "host")
   let (pv, d) := createElm old d
-  let d := d.appendChild host pv.node
+  let d := if detached then d else d.appendChild host pv.node
   let d := { d with trace := #[] }
-  let (_, d) := patch pv new d
+  let (nv, d) := patch pv new d
   let leanTrace := d.trace.toList.map Op.render
-  let keys := ((attrKeys old ++ attrKeys new).mergeSort (· ≤ ·)).eraseDups
-  let leanDom := String.join (((d.get host).map (·.children)).getD [] |>.map (serialize d keys))
+  let keys := (("id" :: "class" :: attrKeys old ++ attrKeys new).mergeSort (· ≤ ·)).eraseDups
+  let hostDom := String.join (((d.get host).map (·.children)).getD [] |>.map (serialize d keys))
+  let leanDom := hostDom ++ "|" ++ serialize d keys nv.node
   if !d.ok then
     return ⟨false, "model reached a DOM error"⟩
   if leanTrace ≠ scalaTrace then
