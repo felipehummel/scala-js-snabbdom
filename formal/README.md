@@ -2,9 +2,9 @@
 
 This directory proves, in Lean 4, that snabbdom's diff is correct:
 **patching an old tree into a new vnode leaves the same DOM that rendering the
-new vnode from scratch would**, for every vnode that meets `VNode.WF`: a set of
-sufficient conditions on tag and attribute names (see
-[Where the property fails](#where-the-property-fails)).
+new vnode from scratch would**, for every vnode that meets `VNode.WF`: valid
+tag and attribute names, and one key per attribute (see
+[What `VNode.WF` excludes](#what-vnodewf-excludes)).
 
 It has two parts:
 
@@ -17,12 +17,12 @@ It has two parts:
 2. **A bridge from the model to the Scala code.** Lean cannot read Scala, so
    `conformance.sh` runs the real library in headless Chrome on 10,000 random
    `(old, new)` pairs (a tenth of them with up to 12 mostly keyed siblings, for
-   `placeWithFewestMoves`) plus the two counterexamples below. A recording
+   `placeWithFewestMoves`) plus a few fixed cases. A recording
    `DomApi` logs every structural DOM call (create, insert, append, remove, set
    text). The Lean model then replays each case and must make the same calls
    in the same order and leave the same DOM. Attribute writes do not go through
    `DomApi` (the Scala code calls `setAttribute` on the element), so they are
-   compared through the final DOM only. Last run: 10,004 cases, about 150,000
+   compared through the final DOM only. Last run: 10,005 cases, about 153,000
    DOM operations, 0 mismatches.
 
 So the guarantee is: the algorithm, as modeled, is proved correct for every
@@ -70,9 +70,10 @@ new node where the old one was; and a detached root stays detached.
 forest (`HeapWF`), `old` agrees with the DOM node by node (`Mirrors`), `old`
 itself meets `WF` (together, `PPre`, which is what `patchVnode` expects), and no
 DOM exception has happened yet (`ok`). `v.WF` (in `Spec.lean`) says, for every
-element, that the tag and the attribute keys are `SafeName`s, and that the keys
-are unique (they come from a Scala `Map`), are lowercase, and do not include a
-key the selector already sets.
+element, that the tag is a `SafeName`, that every attribute key is an
+`AttrName` (a `SafeName`, or `xml:`, `xmlns:` or `xlink:` then one), and that
+no two keys name the same attribute (`attrName`: the key lowercased, unless it
+is namespaced).
 
 Mounting gives `patch` a `Valid` input, so the theorem covers a mount followed
 by any number of patches (`Proofs/Create.lean`):
@@ -85,40 +86,31 @@ theorem createElm_valid (v : VNode) (d : Dom) (hw : HeapWF d) (hok : d.ok = true
 `createElm_shows` (`Proofs/Create.lean`) is the "from scratch" half:
 `createElm v` builds a subtree that shows `v.render`.
 
-## Where the property fails
+## What `VNode.WF` excludes
 
-The library does not have the property for every input. Both cases are run
-through the model in `Snabbdom/Counterexamples.lean`, and the conformance suite
-checks that the Scala code behaves like the model on them.
+`VNode.WF` is sufficient, not necessary. It excludes two kinds of input:
 
-`VNode.WF` is sufficient, not necessary. Both failures need the old vnode to
-set an attribute that the new one drops (a key the selector also sets) or
-re-spells (the same name in another case). The same keys in the new vnode
-alone are harmless: patching `div#a` into `div#a` with `{id: "z"}` gives
-`id="z"` both ways. `WF` still excludes them from every vnode, because each new
-vnode is the old one of the next patch.
+* **Names the DOM rejects.** `createElement`, `setAttribute` and
+  `setAttributeNS` throw `InvalidCharacterError` or `NamespaceError` on some
+  names. The model has no such exceptions, so `WF` keeps to names that never
+  throw (see "exceptions on names" below).
+* **Two keys for one attribute,** such as `title` and `TITLE` in one map.
+  `createElm` writes both, to the same DOM attribute, in the order the Scala
+  `Map` iterates, which the vnode does not determine.
 
-* **An attribute the selector also sets.** `createElm` sets `id` from `#…` and
-  `class` from `.…` with `setAttribute`, outside the Attributes module. The
-  module's update does not know about them. Patch `div#a` with
-  `attrs = {id: "z"}` into `div#a` with no attrs: the vnodes are `sameVnode`,
-  the update removes `id`, and the element ends with no `id`. Rendering
-  `div#a` from scratch gives `id="a"`. The same happens with `div.x` and a
-  `class` attribute.
-* **Attribute names that are not lowercase.** The DOM lowercases the name in
-  `setAttribute` and `removeAttribute`; the Attributes module compares names
-  as written. Patch `{TITLE: "x"}` into `{title: "y"}`: the update sets
-  `title="y"`, then removes `TITLE`, which the DOM reads as `title`. Rendering
-  from scratch keeps `title="y"`.
+Everything else the Attributes module accepts is covered, including a key the
+selector also sets (`div#a` with `{id: "z"}`: removing the key restores
+`id="a"`), a key respelled in another case between patches (the update removes
+before it writes), and namespaced keys.
 
 ## How the proof is split
 
 | File | What it proves |
 | --- | --- |
-| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `createElement` and the attribute calls (which lowercase the name), `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`. A misplaced `insertBefore` or `removeChild` sets `ok := false`, standing in for a DOM exception. |
+| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `createElement` and the attribute calls (`setAttribute` and `removeAttribute` lowercase the name, the namespaced ones do not), `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`. A misplaced `insertBefore` or `removeChild` sets `ok := false`, standing in for a DOM exception. |
 | `Spec.lean` | What "correct" means: `VNode.render`, `Shows`, `Mirrors`, `HeapWF`, `PPre`, `Valid`, and the input restriction `VNode.WF`. |
 | `Proofs/Basic.lean` | Each DOM operation keeps the heap well formed; exact effect of `insertBefore` and `removeChild`. |
-| `Proofs/Attrs.lean` | The selector's `id`/`class` and the Attributes module: after `create` the element's attributes are `renderAttrs`; after `update` they are exactly the new ones. |
+| `Proofs/Attrs.lean` | The selector's `id`/`class` and the Attributes module: after `create` the element's attributes are `renderAttrs`; after `update` (removals, which fall back to the selector's value, then writes) they are exactly the new ones. |
 | `Proofs/Create.lean` | `createElm` builds a fresh subtree that shows `v.render` and is a `Valid` input to `patch`. |
 | `Proofs/PlaceList.lean` | `placeAroundAnchors`, the reordering loop used when an unkeyed child matched after the common prefix, on plain lists: after it, the reused and new children appear in the new order. This is the hardest lemma. |
 | `Proofs/Place.lean` | The same loop on the DOM heap. |
@@ -128,7 +120,6 @@ vnode is the old one of the next patch.
 | `Proofs/PatchVnode.lean` | `patchVnode` and the matching fold, by mutual induction. |
 | `Proofs/Main.lean` | `patch` (including replacing a node with an incompatible one) and `diff_eq_recreate`. |
 | `Axioms.lean` | Fails the build if a main theorem depends on `sorry` or a non-standard axiom. |
-| `Counterexamples.lean` | The two inputs above, evaluated in the model. |
 
 ## What is not modeled
 
@@ -139,17 +130,15 @@ The proof says nothing about these parts of the library:
 * exceptions on names. `createElement` and `setAttribute` throw
   `InvalidCharacterError` on an invalid name, such as the empty tag that the
   selector `#a` gives or a key with a space in it. The model accepts every
-  name, so `WF` requires `SafeName`: a conservative subset (an ASCII letter,
-  then ASCII letters, digits, `-`, `_` or `.`) that browsers accept under both
-  the current DOM standard and its older XML `Name` rule.
-* the Attributes module's `setAttributeNS` branch. A string value whose key
-  starts with `x` and has `:` at index 3 or 5 goes through `setAttributeNS`,
-  on any element, not only SVG. The model treats it as `setAttribute`. That
-  matches when the key is only ever set to strings (the conformance suite
-  checks `xml:lang` and `xlink:href`), but not otherwise: the library throws
-  `NamespaceError` on `xmlns:xlink`, and a key set to `true` (through
-  `setAttribute`) and then to a string ends with two attributes of that
-  name. `SafeName` has no `:`, so `WF` excludes all such keys.
+  name, so `WF` requires `SafeName` for tags and `AttrName` for keys: a
+  conservative subset (an ASCII letter, then ASCII letters, digits, `-`, `_`
+  or `.`, after one of the three prefixes for a namespaced key) that browsers
+  accept under both the current DOM standard and its older XML `Name` rule.
+* namespaces as such. The DOM keys a namespaced attribute by namespace and
+  local name; the model keys it by its qualified name, which is the same
+  thing because the Attributes module ties each prefix to one namespace. It
+  cannot hold a namespaced attribute and a plain one with the same qualified
+  name (`xlink:href` and `XLINK:href` lowercased), which `WF` keeps apart.
 * the Props, Class, Style, Dataset and EventListeners modules (only Attributes is modeled)
 * the first patch of a raw DOM element, `patch(elm: dom.Element, vnode)`. It
   wraps `elm` with `emptyNodeAt`, which keeps its tag, id and classes but

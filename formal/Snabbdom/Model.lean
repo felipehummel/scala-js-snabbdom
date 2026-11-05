@@ -87,34 +87,7 @@ def sameVnode : PNode → VNode → Bool
   | .elem s1 d1 _ _, .elem s2 d2 _ => d1.key == d2.key && d1.is == d2.is && s1 == s2
   | _, _ => false
 
-/-! ## The Attributes module (modules/Attributes.scala) -/
-
-def applyAttr (d : Dom) (n : NodeId) (k : String) : AttrVal → Dom
-  | .bool true => d.setAttr n k ""
-  | .bool false => d.removeAttr n k
-  | .str s => d.setAttr n k s
-
-def setAttrs (n : NodeId) (attrs : Attrs) (d : Dom) : Dom :=
-  attrs.foldl (fun d kv => applyAttr d n kv.1 kv.2) d
-
-def updateAttrs (n : NodeId) (old new : Attrs) (d : Dom) : Dom :=
-  let d := new.foldl
-    (fun d kv => if old.lookup kv.1 ≠ some kv.2 then applyAttr d n kv.1 kv.2 else d) d
-  old.foldl (fun d kv => if (new.lookup kv.1).isNone then d.removeAttr n kv.1 else d) d
-
-/-- `cbs.create` -/
-def moduleCreate (p : PNode) (d : Dom) : Dom :=
-  match p with
-  | .elem _ data _ n => if data.attrs ≠ [] then setAttrs n data.attrs d else d
-  | _ => d
-
-/-- `cbs.update` -/
-def moduleUpdate (old : PNode) (v : VNode) (d : Dom) : Dom :=
-  match old, v with
-  | .elem _ a _ n, .elem _ b _ => if a.attrs ≠ b.attrs then updateAttrs n a.attrs b.attrs d else d
-  | _, _ => d
-
-/-- `createElm`'s split of a selector such as `div#app.a.b` into the tag, the
+/-- `Selector.parse`: the split of a selector such as `div#app.a.b` into the tag, the
 `id` and the `class` it sets. Transcribed index for index, quirks included:
 `div.a#b` gives tag `div.a` and id `b`. -/
 structure Selector where
@@ -138,6 +111,7 @@ def Selector.parse (sel : String) : Selector :=
       | some (_ + 1) => some (String.ofList ((cs.drop (dot + 1)).map fun c => if c = '.' then ' ' else c))
       | _ => none }
 
+/-- `Selector.attr`, for a lowercase name. -/
 def Selector.attr (s : Selector) (k : String) : Option String :=
   if k = "id" then s.id else if k = "class" then s.cls else none
 
@@ -145,6 +119,56 @@ def Selector.attr (s : Selector) (k : String) : Option String :=
 def setSelectorAttrs (n : NodeId) (s : Selector) (d : Dom) : Dom :=
   let d := match s.id with | some i => d.setAttr n "id" i | none => d
   match s.cls with | some c => d.setAttr n "class" c | none => d
+
+/-! ## The Attributes module (modules/Attributes.scala) -/
+
+/-- Whether `namespaceOf` finds a namespace in the key's prefix. Which one does
+not matter here: for these three prefixes the qualified name, which keys the
+model's attributes, determines it. -/
+def namespaced (k : String) : Bool :=
+  k.startsWith "xml:" || k.startsWith "xmlns:" || k.startsWith "xlink:"
+
+/-- The name the element's attribute for key `k` ends up under. -/
+def attrName (k : String) : String := if namespaced k then k else asciiLower k
+
+/-- `set` -/
+def setKey (d : Dom) (n : NodeId) (k v : String) : Dom :=
+  if namespaced k then d.setAttrNS n k v else d.setAttr n k v
+
+/-- `remove` -/
+def removeKey (d : Dom) (n : NodeId) (k : String) : Dom :=
+  if namespaced k then d.removeAttrNS n k else d.removeAttr n k
+
+/-- `write` -/
+def applyAttr (d : Dom) (n : NodeId) (k : String) : AttrVal → Dom
+  | .bool true => setKey d n k ""
+  | .bool false => removeKey d n k
+  | .str s => setKey d n k s
+
+/-- `drop` -/
+def dropAttr (sel : String) (d : Dom) (n : NodeId) (k : String) : Dom :=
+  match (if namespaced k then none else (Selector.parse sel).attr (asciiLower k)) with
+  | some v => d.setAttr n k v
+  | none => removeKey d n k
+
+def setAttrs (n : NodeId) (attrs : Attrs) (d : Dom) : Dom :=
+  attrs.foldl (fun d kv => applyAttr d n kv.1 kv.2) d
+
+def updateAttrs (sel : String) (n : NodeId) (old new : Attrs) (d : Dom) : Dom :=
+  let d := old.foldl (fun d kv => if (new.lookup kv.1).isNone then dropAttr sel d n kv.1 else d) d
+  new.foldl (fun d kv => if old.lookup kv.1 ≠ some kv.2 then applyAttr d n kv.1 kv.2 else d) d
+
+/-- `cbs.create` -/
+def moduleCreate (p : PNode) (d : Dom) : Dom :=
+  match p with
+  | .elem _ data _ n => if data.attrs ≠ [] then setAttrs n data.attrs d else d
+  | _ => d
+
+/-- `cbs.update` -/
+def moduleUpdate (old : PNode) (v : VNode) (d : Dom) : Dom :=
+  match old, v with
+  | .elem _ a _ n, .elem sel b _ => if a.attrs ≠ b.attrs then updateAttrs sel n a.attrs b.attrs d else d
+  | _, _ => d
 
 def appendAll (n : NodeId) : List PNode → Dom → Dom
   | [], d => d

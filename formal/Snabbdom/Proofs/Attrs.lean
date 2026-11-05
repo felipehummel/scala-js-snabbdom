@@ -5,127 +5,129 @@ namespace Snabbdom
 def overwrite (k : String) (o : Option String) (f : String → Option String) : String → Option String :=
   fun j => if j = k then o else f j
 
-theorem lookup_eq_none {β} (l : List (String × β)) (k : String) (h : k ∉ l.map (·.1)) :
-    l.lookup k = none := by
+theorem mem_of_lookup {β} {l : List (String × β)} {k : String} {v : β} (h : l.lookup k = some v) :
+    (k, v) ∈ l := by
   induction l with
-  | nil => rfl
+  | nil => simp [List.lookup] at h
   | cons kv rest ih =>
-    obtain ⟨k', v⟩ := kv
-    simp only [List.map_cons, List.mem_cons, not_or] at h
-    simp only [List.lookup]
-    have : (k == k') = false := by simp [h.1]
-    rw [this]; exact ih h.2
+    obtain ⟨k', v'⟩ := kv
+    by_cases e : k = k'
+    · subst e; simp [List.lookup] at h; subst h; exact List.mem_cons_self
+    · have : (k == k') = false := by simp [e]
+      simp only [List.lookup, this] at h
+      exact List.mem_cons_of_mem _ (ih h)
 
-theorem lookup_cons_self {β} (k : String) (v : β) (rest : List (String × β)) :
-    ((k, v) :: rest).lookup k = some v := by simp [List.lookup]
+theorem lookup_isSome {β} {l : List (String × β)} {kv : String × β} (h : kv ∈ l) :
+    (l.lookup kv.1).isSome := by
+  induction l with
+  | nil => cases h
+  | cons kv' rest ih =>
+    obtain ⟨k', v'⟩ := kv'
+    by_cases e : kv.1 = k'
+    · simp [List.lookup, e]
+    · have : (kv.1 == k') = false := by simp [e]
+      simp only [List.lookup, this]
+      rcases List.mem_cons.1 h with rfl | h
+      · exact absurd rfl e
+      · exact ih h
 
-theorem lookup_cons_ne {β} (k j : String) (v : β) (rest : List (String × β)) (h : j ≠ k) :
-    ((k, v) :: rest).lookup j = rest.lookup j := by
-  simp only [List.lookup]
-  have : (j == k) = false := by simp [h]
-  rw [this]
+theorem eq_of_nodup_map {α β} {f : α → β} {l : List α} (h : (l.map f).Nodup) {a b : α}
+    (ha : a ∈ l) (hb : b ∈ l) (e : f a = f b) : a = b := by
+  induction l with
+  | nil => cases ha
+  | cons x rest ih =>
+    rw [List.map_cons, List.nodup_cons] at h
+    rcases List.mem_cons.1 ha with rfl | ha' <;> rcases List.mem_cons.1 hb with rfl | hb'
+    · rfl
+    · exact absurd (e ▸ List.mem_map_of_mem hb') h.1
+    · exact absurd (e ▸ List.mem_map_of_mem ha') h.1
+    · exact ih h.2 ha' hb'
 
-def Lowercase (a : Attrs) : Prop := ∀ kv ∈ a, asciiLower kv.1 = kv.1
+theorem find_none (l : Attrs) (j : String) (h : j ∉ l.map (attrName ·.1)) :
+    l.find? (fun kv => attrName kv.1 == j) = none :=
+  List.find?_eq_none.2 fun kv hkv e => h (List.mem_map.2 ⟨kv, hkv, by simpa using e⟩)
 
-theorem Lowercase.tail {kv : String × AttrVal} {a : Attrs} (h : Lowercase (kv :: a)) : Lowercase a :=
-  fun x hx => h x (List.mem_cons_of_mem _ hx)
+theorem find_mem (l : Attrs) (hnd : (l.map (attrName ·.1)).Nodup) {kv : String × AttrVal} (h : kv ∈ l) :
+    l.find? (fun kv' => attrName kv'.1 == attrName kv.1) = some kv := by
+  cases ho : l.find? (fun kv' => attrName kv'.1 == attrName kv.1) with
+  | none => exact absurd (by simp) (List.find?_eq_none.1 ho kv h)
+  | some x =>
+    exact congrArg some (eq_of_nodup_map hnd (List.mem_of_find?_eq_some ho) h
+      (by simpa using List.find?_some ho))
 
-theorem AttrsWF.lower {sel : String} {a : Attrs} (h : AttrsWF sel a) : Lowercase a :=
-  fun kv hkv => (h.2 kv hkv).1
+/-- Writes `w kv` to the attribute `attrName kv.1`, for each entry `kv` that has one. -/
+def writeAll (w : String × AttrVal → Option (Option String)) (l : Attrs)
+    (f : String → Option String) : String → Option String :=
+  l.foldl (fun f kv => match w kv with | some o => overwrite (attrName kv.1) o f | none => f) f
 
-def setAll (a : Attrs) (f : String → Option String) : String → Option String :=
-  a.foldl (fun f kv => overwrite (asciiLower kv.1) kv.2.render f) f
-
-theorem setAll_apply (a : Attrs) (hnd : (a.map (·.1)).Nodup) (hlo : Lowercase a)
-    (f : String → Option String) (j : String) :
-    setAll a f j = match a.lookup j with | some v => v.render | none => f j := by
-  induction a generalizing f with
-  | nil => rfl
-  | cons kv rest ih =>
-    obtain ⟨k, v⟩ := kv
-    have hk : asciiLower k = k := hlo _ List.mem_cons_self
-    simp only [List.map_cons, List.nodup_cons] at hnd
-    simp only [setAll, List.foldl_cons] at ih ⊢
-    rw [hk, ih hnd.2 hlo.tail]
-    by_cases hj : j = k
-    · subst hj
-      rw [lookup_eq_none rest j hnd.1, lookup_cons_self]
-      simp [overwrite]
-    · rw [lookup_cons_ne k j v rest hj]
-      cases rest.lookup j <;> simp [overwrite, hj]
-
-theorem setAll_selector (sel : String) (a : Attrs) (h : AttrsWF sel a) :
-    setAll a (Selector.parse sel).attr = renderAttrs sel a := by
-  funext j; rw [setAll_apply a h.1 h.lower]; rfl
-
-/-- The first loop of `updateAttrs`. -/
-def updNew (old new : Attrs) (f : String → Option String) : String → Option String :=
-  new.foldl (fun f kv => if old.lookup kv.1 ≠ some kv.2 then overwrite (asciiLower kv.1) kv.2.render f else f) f
-
-/-- The second loop of `updateAttrs`. -/
-def updOld (old new : Attrs) (f : String → Option String) : String → Option String :=
-  old.foldl (fun f kv => if (new.lookup kv.1).isNone then overwrite (asciiLower kv.1) none f else f) f
-
-theorem updNew_apply (old new : Attrs) (hnd : (new.map (·.1)).Nodup) (hlo : Lowercase new)
-    (f : String → Option String) (j : String) :
-    updNew old new f j = match new.lookup j with
-      | some v => if old.lookup j ≠ some v then v.render else f j
+theorem writeAll_apply (w : String × AttrVal → Option (Option String)) (l : Attrs)
+    (hnd : (l.map (attrName ·.1)).Nodup) (f : String → Option String) (j : String) :
+    writeAll w l f j = match l.find? (fun kv => attrName kv.1 == j) with
+      | some kv => (w kv).getD (f j)
       | none => f j := by
-  induction new generalizing f with
+  induction l generalizing f with
   | nil => rfl
   | cons kv rest ih =>
-    obtain ⟨k, v⟩ := kv
-    have hk : asciiLower k = k := hlo _ List.mem_cons_self
-    simp only [List.map_cons, List.nodup_cons] at hnd
-    simp only [updNew, List.foldl_cons, hk] at ih ⊢
-    rw [ih hnd.2 hlo.tail]
-    by_cases hj : j = k
+    rw [List.map_cons, List.nodup_cons] at hnd
+    simp only [writeAll, List.foldl_cons] at ih ⊢
+    rw [ih hnd.2, List.find?_cons]
+    by_cases hj : attrName kv.1 = j
     · subst hj
-      rw [lookup_eq_none rest j hnd.1, lookup_cons_self]
-      by_cases hc : old.lookup j = some v <;> simp [overwrite, hc]
-    · rw [lookup_cons_ne k j v rest hj]
-      cases rest.lookup j <;> (by_cases hc : old.lookup k = some v <;> simp [overwrite, hj, hc])
+      rw [find_none rest _ hnd.1]
+      cases hw : w kv <;> simp [overwrite, hw]
+    · have : (attrName kv.1 == j) = false := by simp [hj]
+      rw [this]
+      have hj' : j ≠ attrName kv.1 := Ne.symm hj
+      cases rest.find? (fun kv => attrName kv.1 == j) <;> cases w kv <;> simp [overwrite, hj']
 
-theorem updOld_apply (old new : Attrs) (hlo : Lowercase old) (f : String → Option String) (j : String) :
-    updOld old new f j =
-      if j ∈ old.map (·.1) ∧ new.lookup j = none then none else f j := by
-  induction old generalizing f with
-  | nil => simp [updOld]
-  | cons kv rest ih =>
-    obtain ⟨k, v⟩ := kv
-    have hk : asciiLower k = k := hlo _ List.mem_cons_self
-    simp only [updOld, List.foldl_cons, hk] at ih ⊢
-    rw [ih hlo.tail]
-    by_cases hj : j = k
-    · subst hj
-      by_cases hn : new.lookup j = none <;> simp [overwrite, hn]
-    · have hm : (j ∈ List.map (fun x => x.fst) ((k, v) :: rest)) ↔ j ∈ List.map (fun x => x.fst) rest := by
-        simp [hj]
-      simp only [hm]
-      by_cases hn : (new.lookup k).isNone <;> simp [overwrite, hj, hn]
+def setAll (a : Attrs) : (String → Option String) → String → Option String :=
+  writeAll (fun kv => some kv.2.render) a
 
-/-- Needs `old` to set no key the selector sets: removing it would also remove
-the selector's value, which a fresh render keeps. -/
-theorem update_correct (sel : String) (old new : Attrs) (hold : AttrsWF sel old)
-    (hnew : AttrsWF sel new) :
-    updOld old new (updNew old new (renderAttrs sel old)) = renderAttrs sel new := by
+theorem setAll_selector (sel : String) (a : Attrs) (h : AttrsWF a) :
+    setAll a (Selector.parse sel).attr = renderAttrs sel a := by
   funext j
-  rw [updOld_apply old new hold.lower, updNew_apply old new hnew.1 hnew.lower]
-  unfold renderAttrs
-  cases hl : new.lookup j with
-  | some v =>
-    simp only [reduceCtorEq, and_false, ite_false]
-    by_cases hc : old.lookup j = some v
-    · simp [hc]
+  rw [setAll, writeAll_apply _ a h.1]
+  unfold renderAttrs Attrs.get
+  cases a.find? (fun kv => attrName kv.1 == j) <;> rfl
+
+/-- The removal loop of `updateAttrs`. -/
+def dropAll (sel : String) (old new : Attrs) : (String → Option String) → String → Option String :=
+  writeAll (fun kv => if (new.lookup kv.1).isNone then some ((Selector.parse sel).attr (attrName kv.1)) else none) old
+
+/-- The setting loop of `updateAttrs`. -/
+def changeAll (old new : Attrs) : (String → Option String) → String → Option String :=
+  writeAll (fun kv => if old.lookup kv.1 ≠ some kv.2 then some kv.2.render else none) new
+
+theorem update_correct (sel : String) (old new : Attrs) (hold : AttrsWF old) (hnew : AttrsWF new) :
+    changeAll old new (dropAll sel old new (renderAttrs sel old)) = renderAttrs sel new := by
+  funext j
+  rw [changeAll, writeAll_apply _ new hnew.1, dropAll, writeAll_apply _ old hold.1]
+  unfold renderAttrs Attrs.get
+  cases hn : new.find? (fun kv => attrName kv.1 == j) with
+  | some kv =>
+    have hk : attrName kv.1 = j := by simpa using List.find?_some hn
+    subst hk
+    by_cases hc : old.lookup kv.1 = some kv.2
+    · have ho := find_mem old hold.1 (mem_of_lookup hc)
+      have hs := lookup_isSome (List.mem_of_find?_eq_some hn)
+      simp [hc, ho, Option.isSome_iff_ne_none.1 hs]
     · simp [hc]
   | none =>
-    simp only [and_true]
-    split
-    · rename_i hk
-      obtain ⟨kv, hkv, rfl⟩ := List.mem_map.1 hk
-      exact ((hold.2 kv hkv).2.1).symm
-    · rename_i hk
-      rw [lookup_eq_none old j hk]
+    cases ho : old.find? (fun kv => attrName kv.1 == j) with
+    | none => rfl
+    | some kv =>
+      have hk : attrName kv.1 = j := by simpa using List.find?_some ho
+      have hl : new.lookup kv.1 = none := by
+        cases hl : new.lookup kv.1 with
+        | none => rfl
+        | some u => exact absurd (by simpa using hk) (List.find?_eq_none.1 hn _ (mem_of_lookup hl))
+      simp [hl, hk]
+
+theorem Selector.attr_namespaced (s : Selector) {k : String} (h : namespaced k = true) :
+    s.attr k = none := by
+  have hi : k ≠ "id" := by rintro rfl; simp [namespaced] at h
+  have hc : k ≠ "class" := by rintro rfl; simp [namespaced] at h
+  simp [Selector.attr, hi, hc]
 
 namespace Dom
 
@@ -166,53 +168,58 @@ theorem AttrStep.other {d d' : Dom} {n g} (h : AttrStep d d' n g) (m : NodeId) (
 theorem setAttr_step (d : Dom) (n : NodeId) (k v : String) :
     AttrStep d (d.setAttr n k v) n (overwrite (asciiLower k) (some v)) := ⟨fun _ => rfl, rfl, rfl⟩
 
+theorem setKey_step (d : Dom) (n : NodeId) (k v : String) :
+    AttrStep d (setKey d n k v) n (overwrite (attrName k) (some v)) := by
+  unfold setKey attrName; cases namespaced k <;> exact ⟨fun _ => rfl, rfl, rfl⟩
+
+theorem removeKey_step (d : Dom) (n : NodeId) (k : String) :
+    AttrStep d (removeKey d n k) n (overwrite (attrName k) none) := by
+  unfold removeKey attrName; cases namespaced k <;> exact ⟨fun _ => rfl, rfl, rfl⟩
+
 theorem applyAttr_step (d : Dom) (n : NodeId) (k : String) (v : AttrVal) :
-    AttrStep d (applyAttr d n k v) n (overwrite (asciiLower k) v.render) := by
-  refine ⟨fun m => ?_, ?_, ?_⟩
-  all_goals (cases v with
-    | str s => rfl
-    | bool b => cases b <;> rfl)
+    AttrStep d (applyAttr d n k v) n (overwrite (attrName k) v.render) := by
+  cases v with
+  | str s => exact setKey_step d n k s
+  | bool b => cases b with
+    | false => exact removeKey_step d n k
+    | true => exact setKey_step d n k ""
+
+theorem dropAttr_step (sel : String) (d : Dom) (n : NodeId) (k : String) :
+    AttrStep d (dropAttr sel d n k) n
+      (overwrite (attrName k) ((Selector.parse sel).attr (attrName k))) := by
+  unfold dropAttr
+  cases h : namespaced k
+  · have ha : attrName k = asciiLower k := by simp [attrName, h]
+    simp only [Bool.false_eq_true, ite_false]
+    cases hs : (Selector.parse sel).attr (asciiLower k) with
+    | some v => rw [ha, hs]; exact setAttr_step d n k v
+    | none => rw [← ha] at hs; rw [hs]; exact removeKey_step d n k
+  · simp only [ite_true]
+    rw [Selector.attr_namespaced _ (by simp [attrName, h])]
+    exact removeKey_step d n k
+
+theorem foldl_step (n : NodeId) (op : Dom → String × AttrVal → Dom)
+    (w : String × AttrVal → Option (Option String))
+    (hop : ∀ d kv, AttrStep d (op d kv) n
+      (fun f => match w kv with | some o => overwrite (attrName kv.1) o f | none => f))
+    (l : Attrs) (d : Dom) : AttrStep d (l.foldl op d) n (writeAll w l) := by
+  induction l generalizing d with
+  | nil => exact AttrStep.refl d n
+  | cons kv rest ih => exact ((hop d kv).trans (ih _)).congr rfl
 
 theorem setAttrs_step (n : NodeId) (a : Attrs) (d : Dom) :
-    AttrStep d (setAttrs n a d) n (setAll a) := by
-  induction a generalizing d with
-  | nil => exact AttrStep.refl d n
-  | cons kv rest ih =>
-    have := (applyAttr_step d n kv.1 kv.2).trans (ih (applyAttr d n kv.1 kv.2))
-    exact this.congr (by funext f; rfl)
+    AttrStep d (setAttrs n a d) n (setAll a) :=
+  foldl_step n _ _ (fun d kv => applyAttr_step d n kv.1 kv.2) a d
 
-theorem updateAttrs_step (n : NodeId) (old new : Attrs) (d : Dom) :
-    AttrStep d (updateAttrs n old new d) n (updOld old new ∘ updNew old new) := by
-  have s1 : ∀ (l : Attrs) (d : Dom), AttrStep d
-      (l.foldl (fun d kv => if old.lookup kv.1 ≠ some kv.2 then applyAttr d n kv.1 kv.2 else d) d) n
-      (fun f => l.foldl (fun f kv => if old.lookup kv.1 ≠ some kv.2 then overwrite (asciiLower kv.1) kv.2.render f else f) f) := by
-    intro l
-    induction l with
-    | nil => intro d; exact AttrStep.refl d n
-    | cons kv rest ih =>
-      intro d
-      simp only [List.foldl_cons]
-      by_cases hc : old.lookup kv.1 ≠ some kv.2
-      · simp only [hc, ite_true, ne_eq, not_false_eq_true]
-        exact ((applyAttr_step d n kv.1 kv.2).trans (ih _)).congr (by funext f; simp)
-      · simp only [hc, ite_false]
-        exact ((AttrStep.refl d n).trans (ih d)).congr (by funext f; simp)
-  have s2 : ∀ (l : Attrs) (d : Dom), AttrStep d
-      (l.foldl (fun d kv => if (new.lookup kv.1).isNone then d.removeAttr n kv.1 else d) d) n
-      (fun f => l.foldl (fun f kv => if (new.lookup kv.1).isNone then overwrite (asciiLower kv.1) none f else f) f) := by
-    intro l
-    induction l with
-    | nil => intro d; exact AttrStep.refl d n
-    | cons kv rest ih =>
-      intro d
-      simp only [List.foldl_cons]
-      by_cases hc : (new.lookup kv.1).isNone
-      · simp only [hc, ite_true]
-        exact ((⟨fun _ => rfl, rfl, rfl⟩ : AttrStep d (d.removeAttr n kv.1) n (overwrite (asciiLower kv.1) none)).trans
-          (ih _)).congr (by funext f; simp)
-      · simp only [hc]
-        exact ((AttrStep.refl d n).trans (ih d)).congr (by funext f; simp)
-  exact ((s1 new d).trans (s2 old _)).congr rfl
+theorem updateAttrs_step (sel : String) (n : NodeId) (old new : Attrs) (d : Dom) :
+    AttrStep d (updateAttrs sel n old new d) n (changeAll old new ∘ dropAll sel old new) := by
+  refine (foldl_step n _ _ (fun d kv => ?_) old d).trans (foldl_step n _ _ (fun d kv => ?_) new _)
+  · by_cases hc : (new.lookup kv.1).isNone
+    · simp only [hc, ite_true]; exact dropAttr_step sel d n kv.1
+    · simp only [hc]; exact AttrStep.refl d n
+  · by_cases hc : old.lookup kv.1 = some kv.2
+    · simp only [hc, ne_eq, not_true_eq_false, ite_false]; exact AttrStep.refl d n
+    · simp only [hc, ne_eq, not_false_eq_true, ite_true]; exact applyAttr_step d n kv.1 kv.2
 
 end Dom
 
@@ -234,16 +241,16 @@ theorem moduleCreate_step (sel : String) (data : Data) (ch : List PNode) (n : No
   split
   · exact Dom.setAttrs_step n data.attrs d
   · rename_i h; simp only [ne_eq, Decidable.not_not] at h
-    exact (Dom.AttrStep.refl d n).congr (by funext f; simp [h, setAll])
+    exact (Dom.AttrStep.refl d n).congr (by funext f; simp [h, setAll, writeAll])
 
 theorem moduleUpdate_step (sel : String) (a : Data) (ch : List PNode) (n : NodeId)
     (sel' : String) (b : Data) (ch' : List VNode) (d : Dom) :
     ∃ g, Dom.AttrStep d (moduleUpdate (.elem sel a ch n) (.elem sel' b ch') d) n g ∧
-      (AttrsWF sel a.attrs → AttrsWF sel b.attrs →
-        g (renderAttrs sel a.attrs) = renderAttrs sel b.attrs) := by
-  show ∃ g, Dom.AttrStep d (if a.attrs ≠ b.attrs then updateAttrs n a.attrs b.attrs d else d) n g ∧ _
+      (AttrsWF a.attrs → AttrsWF b.attrs →
+        g (renderAttrs sel' a.attrs) = renderAttrs sel' b.attrs) := by
+  show ∃ g, Dom.AttrStep d (if a.attrs ≠ b.attrs then updateAttrs sel' n a.attrs b.attrs d else d) n g ∧ _
   split
-  · exact ⟨_, Dom.updateAttrs_step n a.attrs b.attrs d, fun h1 h2 => update_correct sel _ _ h1 h2⟩
+  · exact ⟨_, Dom.updateAttrs_step sel' n a.attrs b.attrs d, fun h1 h2 => update_correct sel' _ _ h1 h2⟩
   · rename_i h; simp only [ne_eq, Decidable.not_not] at h
     exact ⟨id, Dom.AttrStep.refl d n, fun _ _ => by rw [h]; rfl⟩
 

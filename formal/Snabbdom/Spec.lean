@@ -17,9 +17,13 @@ def AttrVal.render : AttrVal → Option String
   | .bool true => some ""
   | .bool false => none
 
+/-- The value `a` gives the attribute named `j`, through whichever key names it. -/
+def Attrs.get (a : Attrs) (j : String) : Option AttrVal :=
+  (a.find? (fun kv => attrName kv.1 == j)).map (·.2)
+
 /-- The attributes `createElm` leaves: the vnode's own over the selector's. -/
 def renderAttrs (sel : String) (a : Attrs) : String → Option String :=
-  fun k => match a.lookup k with
+  fun k => match a.get k with
     | some v => v.render
     | none => (Selector.parse sel).attr k
 
@@ -37,26 +41,28 @@ end
 /-- A conservative subset of the names that `createElement` and `setAttribute`
 accept without `InvalidCharacterError`, under both the current DOM standard and
 its older XML `Name` rule: an ASCII letter, then ASCII letters, digits, `-`,
-`_` or `.`. Having no `:`, such a key never takes the Attributes module's
-`setAttributeNS` branch. -/
+`_` or `.`. -/
 def SafeName (s : String) : Prop :=
   match s.toList with
   | c :: cs => c.isAlpha ∧ ∀ c ∈ cs, c.isAlphanum ∨ c = '-' ∨ c = '_' ∨ c = '.'
   | [] => False
 
-/-- Keys are unique because they come from a Scala `Map`. Being lowercase and
-not set by the selector keep the theorem where the library has the property
-(the README gives a counterexample for each); `SafeName` keeps it where the
-library throws no DOM exception. -/
-def AttrsWF (sel : String) (a : Attrs) : Prop :=
-  (a.map (·.1)).Nodup ∧
-    ∀ kv ∈ a, asciiLower kv.1 = kv.1 ∧ (Selector.parse sel).attr kv.1 = none ∧ SafeName kv.1
+/-- The keys the Attributes module writes without a DOM exception: a `SafeName`,
+or `xml:`, `xmlns:` or `xlink:` then a `SafeName`, which `setAttributeNS`
+accepts in the namespace that prefix names. -/
+def AttrName (k : String) : Prop :=
+  SafeName k ∨ ∃ p ∈ ["xml", "xmlns", "xlink"], ∃ l, SafeName l ∧ k = p ++ ":" ++ l
+
+/-- One key per attribute name: a Scala `Map` holding both `title` and `TITLE`
+sets one attribute twice, and which write wins depends on its iteration order. -/
+def AttrsWF (a : Attrs) : Prop :=
+  (a.map (attrName ·.1)).Nodup ∧ ∀ kv ∈ a, AttrName kv.1
 
 mutual
 /-- Sufficient, not necessary: a per-vnode condition, so that it carries over
 from one patch to the next. -/
 def VNode.WF : VNode → Prop
-  | .elem sel d ch => SafeName (Selector.parse sel).tag ∧ AttrsWF sel d.attrs ∧ VNode.WFs ch
+  | .elem sel d ch => SafeName (Selector.parse sel).tag ∧ AttrsWF d.attrs ∧ VNode.WFs ch
   | _ => True
 def VNode.WFs : List VNode → Prop
   | [] => True

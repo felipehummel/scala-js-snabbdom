@@ -12,4 +12,3 @@ import Snabbdom.Proofs.Patch
 import Snabbdom.Proofs.PatchVnode
 import Snabbdom.Proofs.Main
 import Snabbdom.Axioms
-import Snabbdom.Counterexamples

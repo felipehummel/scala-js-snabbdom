@@ -140,6 +140,58 @@ class AttributesSuite extends BaseSuite {
 
   }
 
+  group("patched attributes") {
+
+    // In each test, patching must leave what rendering the new vnode from
+    // scratch leaves.
+
+    vnode0.test("fall back to the selector's id when removed") { vnode0 =>
+      val vnode1 = h("div#a", VNodeData(attrs = Map("id" -> "z")))
+      val vnode1p = patch(vnode0, vnode1)
+      val elm = patch(vnode1p, h("div#a")).node.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttribute("id"), "a")
+    }
+
+    vnode0.test("fall back to the selector's classes when removed") { vnode0 =>
+      val vnode1 = h("div.x.y", VNodeData(attrs = Map("CLASS" -> "z")))
+      val vnode1p = patch(vnode0, vnode1)
+      val elm = patch(vnode1p, h("div.x.y")).node.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttribute("class"), "x y")
+    }
+
+    vnode0.test("keep a name respelled in another case") { vnode0 =>
+      val vnode1 = h("div", VNodeData(attrs = Map("TITLE" -> "x")))
+      val vnode1p = patch(vnode0, vnode1)
+      val vnode2 = h("div", VNodeData(attrs = Map("title" -> "y")))
+      val elm = patch(vnode1p, vnode2).node.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttribute("title"), "y")
+    }
+
+    vnode0.test("set xmlns-prefixed keys in the XMLNS namespace") { vnode0 =>
+      val xlinkNS = "http://www.w3.org/1999/xlink"
+      val vnode1 = h("div", VNodeData(attrs = Map("xmlns:xlink" -> xlinkNS)))
+      val elm = patch(vnode0, vnode1).node.asInstanceOf[dom.Element]
+      assertEquals(
+        elm.getAttributeNS("http://www.w3.org/2000/xmlns/", "xlink"),
+        xlinkNS
+      )
+    }
+
+    vnode0.test("stay one attribute when a namespaced key changes type") {
+      vnode0 =>
+        val vnode1 = h("div", VNodeData(attrs = Map("xlink:href" -> true)))
+        val vnode1p = patch(vnode0, vnode1)
+        val vnode2 = h("div", VNodeData(attrs = Map("xlink:href" -> "#a")))
+        val elm = patch(vnode1p, vnode2).node.asInstanceOf[dom.Element]
+        assertEquals(elm.attributes.length, 1)
+        assertEquals(
+          elm.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+          "#a"
+        )
+    }
+
+  }
+
   group("boolean attribute") {
 
     vnode0.test("is present and empty string if the value is thruthy (in JS)") {

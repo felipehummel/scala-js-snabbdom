@@ -40,7 +40,7 @@ def Op.render : Op → String
   | .setText n s => s!"st {n} {s}"
 
 partial def attrKeys : VNode → List String
-  | .elem _ d ch => d.attrs.map (asciiLower ·.1) ++ ch.flatMap attrKeys
+  | .elem _ d ch => d.attrs.map (attrName ·.1) ++ ch.flatMap attrKeys
   | _ => []
 
 /-- Same format as `ConformanceSuite.serialize` on the Scala side, which lists
