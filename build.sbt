@@ -38,6 +38,57 @@ ThisBuild / githubWorkflowBuild +=
     )
   )
 
+// The Lean build and the conformance run do not vary across the OS, Scala and
+// Java matrix, so the job runs once.
+ThisBuild / githubWorkflowAddedJobs += {
+  val leanInputs =
+    "hashFiles('formal/lean-toolchain', 'formal/lake-manifest.json', 'formal/lakefile.toml')"
+  WorkflowJob(
+    id = "formal",
+    name = "Formal",
+    oses = githubWorkflowOSes.value.toList.take(1),
+    scalas = githubWorkflowScalaVersions.value.toList.take(1),
+    javas = githubWorkflowJavaVersions.value.toList.take(1),
+    timeoutMinutes = Some(60),
+    steps = githubWorkflowJobSetup.value.toList ++ List(
+      // A pinned release checked by digest: elan-init.sh would install
+      // whichever elan release is latest at run time.
+      WorkflowStep.Run(
+        List(
+          "curl -sSfL -o elan.tar.gz https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz",
+          "echo '42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63  elan.tar.gz' | sha256sum -c",
+          "tar xzf elan.tar.gz",
+          "./elan-init -y --default-toolchain none"
+        ),
+        name = Some("Install elan"),
+        workingDirectory = Some("${{ runner.temp }}")
+      ),
+      WorkflowStep.Run(
+        List("echo \"$HOME/.elan/bin\" >> \"$GITHUB_PATH\""),
+        name = Some("Add elan to PATH")
+      ),
+      WorkflowStep.Use(
+        UseRef.Public("actions", "cache", "v4"),
+        name = Some("Cache Lean build"),
+        params = Map(
+          "path" -> "formal/.lake",
+          "key" -> s"lake-$${{ runner.os }}-$${{ $leanInputs }}-$${{ hashFiles('formal/**/*.lean') }}",
+          "restore-keys" -> s"lake-$${{ runner.os }}-$${{ $leanInputs }}-"
+        )
+      ),
+      WorkflowStep.Run(
+        List("lake build"),
+        name = Some("Check proofs"),
+        workingDirectory = Some("formal")
+      ),
+      WorkflowStep.Run(
+        List("formal/conformance.sh"),
+        name = Some("Check Lean-Scala conformance")
+      )
+    )
+  )
+}
+
 lazy val useJSEnv = settingKey[JSEnv]("Browser for running Scala.js tests")
 Global / useJSEnv := JSEnv.Chrome
 ThisBuild / Test / jsEnv := {

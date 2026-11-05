@@ -182,5 +182,5 @@ CHROMEDRIVER=/path/to/chromedriver ./conformance.sh
 
 The Scala side lives in `snabbdom/src/conformance/`. It compiles with the
 other tests but runs only when `SNABBDOM_CONFORMANCE` is set (see `build.sbt`),
-so the normal test suite skips it. Nothing runs `lake build` or
-`conformance.sh` automatically: CI does neither.
+so the normal test suite skips it. CI's `Formal` job runs `lake build` and
+`conformance.sh` on every push and pull request.
