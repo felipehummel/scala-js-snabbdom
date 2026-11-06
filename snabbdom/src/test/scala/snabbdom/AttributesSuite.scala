@@ -226,6 +226,25 @@ class AttributesSuite extends BaseSuite {
       assertEquals(dropped.attributes.length, 0)
     }
 
+    test("replace a hydrated prefixed attribute, which has no namespace") {
+      val xmlNS = "http://www.w3.org/XML/1998/namespace"
+      val xlinkNS = "http://www.w3.org/1999/xlink"
+      val host = dom.document.createElement("div")
+      host.innerHTML = """<div xml:lang="fr" xlink:href="#a"></div>"""
+      val elm = host.firstChild.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttributeNode("xml:lang").namespaceURI, null)
+      assertEquals(elm.getAttributeNode("xlink:href").namespaceURI, null)
+      val hydrated = toVNode(elm)
+      val vnode = h(
+        "div",
+        VNodeData(attrs = Map("xml:lang" -> "en", "xlink:href" -> "#b"))
+      )
+      val changed = patch(hydrated, vnode).node.asInstanceOf[dom.Element]
+      assertEquals(changed.attributes.length, 2)
+      assertEquals(changed.getAttributeNS(xmlNS, "lang"), "en")
+      assertEquals(changed.getAttributeNS(xlinkNS, "href"), "#b")
+    }
+
     vnode0.test("drop a namespaced key without its other-case sibling") {
       vnode0 =>
         val both = h(
