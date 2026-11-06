@@ -85,17 +85,21 @@ object Attributes {
     else if (key.startsWith("xlink:")) Some(xlinkNS)
     else None
 
-  private def set(elm: dom.Element, key: String, value: String): Unit =
-    namespaceOf(key) match {
-      case None     => elm.setAttribute(key, value)
-      case Some(ns) => elm.setAttributeNS(ns, key, value)
-    }
-
   // An attribute parsed from HTML markup, such as `xml:lang` on an element
   // hydrated by `toVNode`, has no namespace even with a prefix: its local name
-  // is the whole key. `removeAttribute(key)` would find it too, but on an HTML
+  // is the whole key. `set` and `remove` both remove it with
+  // `removeAttributeNS(null, key)`, so the key never ends up as two
+  // attributes. `removeAttribute(key)` would find it too, but on an HTML
   // element it lowercases the key, so dropping `xlink:HREF` would also remove
   // `xlink:href`.
+  private def set(elm: dom.Element, key: String, value: String): Unit =
+    namespaceOf(key) match {
+      case None => elm.setAttribute(key, value)
+      case Some(ns) =>
+        elm.setAttributeNS(ns, key, value)
+        elm.removeAttributeNS(null, key)
+    }
+
   private def remove(elm: dom.Element, key: String): Unit =
     namespaceOf(key) match {
       case None => elm.removeAttribute(key)
