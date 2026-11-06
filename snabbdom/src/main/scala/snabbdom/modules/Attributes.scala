@@ -87,10 +87,11 @@ object Attributes {
 
   // An attribute parsed from HTML markup, such as `xml:lang` on an element
   // hydrated by `toVNode`, has no namespace even with a prefix: its local name
-  // is the whole key. `set` and `remove` both remove it with
-  // `removeAttributeNS(null, key)`, so the key never ends up as two
-  // attributes. `removeAttribute(key)` would find it too, but on an HTML
-  // element it lowercases the key, so dropping `xlink:HREF` would also remove
+  // is the whole key, so the namespaced calls miss it. Without
+  // `removeAttributeNS(null, key)`, setting the key would leave it beside the
+  // new attribute and dropping the key would leave it behind.
+  // `removeAttribute(key)` would find it too, but on an HTML element it
+  // lowercases the key, so dropping `xlink:HREF` would also remove
   // `xlink:href`.
   private def set(elm: dom.Element, key: String, value: String): Unit =
     namespaceOf(key) match {

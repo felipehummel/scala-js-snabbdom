@@ -138,14 +138,13 @@ The proof says nothing about these parts of the library:
   cover that branch.
 * hydration (`toVNode`). An attribute parsed from HTML markup has no
   namespace even when its name has a prefix, so `Mirrors` does not hold for
-  `<div xml:lang="fr">` hydrated into the key `xml:lang`. Patching that key
-  never leaves two attributes: after `setAttributeNS` or `removeAttributeNS`
-  with the key's namespace, the Attributes module calls
-  `removeAttributeNS(null, key)`, which removes the parsed attribute, so
-  changing the key's value replaces it and dropping the key removes it
-  (`hydrated` in `Proofs/Attrs.lean` checks both on the model). On the lists
-  `Mirrors` allows that second call removes nothing, so the proof is
-  unchanged. `removeAttribute(key)` would also find the parsed attribute, but
+  `<div xml:lang="fr">` hydrated into the key `xml:lang`. After
+  `setAttributeNS` or `removeAttributeNS` with the key's namespace, the
+  Attributes module calls `removeAttributeNS(null, key)`, which removes the
+  parsed attribute, so changing the key's value replaces it and dropping the
+  key removes it (`hydrated` in `Proofs/Attrs.lean` checks both on the model).
+  On the lists `Mirrors` allows, that second call removes nothing, so the
+  theorems hold with it. `removeAttribute(key)` would also find the parsed attribute, but
   it lowercases the key, so dropping `xlink:HREF` from `{xlink:HREF,
   xlink:href}` would remove both, and the proof does not go through.
 * exceptions on names. `createElement` and `setAttribute` throw
