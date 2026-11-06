@@ -144,9 +144,10 @@ The proof says nothing about these parts of the library:
   parsed attribute, so changing the key's value replaces it and dropping the
   key removes it (`hydrated` in `Proofs/Attrs.lean` checks both on the model).
   On the lists `Mirrors` allows, that second call removes nothing, so the
-  theorems hold with it. `removeAttribute(key)` would also find the parsed attribute, but
-  it lowercases the key, so dropping `xlink:HREF` from `{xlink:HREF,
-  xlink:href}` would remove both, and the proof does not go through.
+  theorems hold with it. `removeAttribute(key)` would also find the parsed
+  attribute, but it lowercases the key, so dropping `xlink:HREF` from
+  `{xlink:HREF, xlink:href}` would remove both, and the proof does not go
+  through.
 * exceptions on names. `createElement` and `setAttribute` throw
   `InvalidCharacterError` on an invalid name, such as the empty tag that the
   selector `#a` gives or a key with a space in it. The model accepts every
