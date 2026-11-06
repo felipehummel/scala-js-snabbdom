@@ -265,7 +265,7 @@ theorem Shows.unique : ∀ (t : DTree) {d : Dom} {n : NodeId} {t' : DTree}, Show
     | elem sel' a' ts' =>
       obtain ⟨x', hx', hk', ha', hl'⟩ := h'
       rw [hx] at hx'; cases hx'; rw [hk] at hk'; cases hk'
-      rw [ha] at ha'; subst ha'
+      have e := ha.2.symm.trans ha'.2; subst e
       rw [ShowsList.unique ts hl hl']
 theorem ShowsList.unique : ∀ (ts : List DTree) {d : Dom} {ns : List NodeId} {ts' : List DTree},
     ShowsList d ns ts → ShowsList d ns ts' → ts = ts'

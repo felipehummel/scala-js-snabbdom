@@ -116,22 +116,6 @@ theorem modify_wf (n : NodeId) (f : DomNode → DomNode)
       rw [← hp, (hf _).1]; exact h.nodup p _ hd
     · exact h.nodup p px hp
 
-@[simp] theorem setAttr_nodes (n : NodeId) (k v : String) (m : NodeId) :
-    (d.setAttr n k v).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = asciiLower k then some v else x.attrs j }) else d.nodes m := rfl
-@[simp] theorem setAttr_next (n k v) : (d.setAttr n k v).next = d.next := rfl
-@[simp] theorem setAttr_ok (n k v) : (d.setAttr n k v).ok = d.ok := rfl
-@[simp] theorem removeAttr_nodes (n : NodeId) (k : String) (m : NodeId) :
-    (d.removeAttr n k).nodes m = if m = n then (d.nodes m).map
-      (fun x => { x with attrs := fun j => if j = asciiLower k then none else x.attrs j }) else d.nodes m := rfl
-@[simp] theorem removeAttr_next (n k) : (d.removeAttr n k).next = d.next := rfl
-@[simp] theorem removeAttr_ok (n k) : (d.removeAttr n k).ok = d.ok := rfl
-
-theorem setAttr_wf (n k v) (h : HeapWF d) : HeapWF (d.setAttr n k v) :=
-  modify_wf n _ (fun _ => ⟨rfl, rfl⟩) h
-theorem removeAttr_wf (n k) (h : HeapWF d) : HeapWF (d.removeAttr n k) :=
-  modify_wf n _ (fun _ => ⟨rfl, rfl⟩) h
-
 theorem setText_text (n : NodeId) (s t : String) (x : DomNode) (hx : d.nodes n = some x)
     (hk : x.kind = .text t) :
     d.setText n s = (d.log (.setText n s)).modify n fun x => { x with kind := .text s } := by

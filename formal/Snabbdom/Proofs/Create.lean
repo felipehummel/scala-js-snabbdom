@@ -2,7 +2,7 @@ import Snabbdom.Proofs.Attrs
 
 namespace Snabbdom
 
-def DomNode.content (x : DomNode) : Kind × (String → Option String) × List NodeId :=
+def DomNode.content (x : DomNode) : Kind × List Attr × List NodeId :=
   (x.kind, x.attrs, x.children)
 
 /-- Node `i` looks the same to `Mirrors` in `d` and `d'`; its parent may differ. -/
@@ -72,7 +72,7 @@ theorem Mirrors.shows : ∀ (p : PNode) {d : Dom}, Mirrors d p → Shows d p.nod
   | .elem sel data ch n, d, h => by
     obtain ⟨x, hx, hk, ha, hc, hl⟩ := h
     simp only [PNode.toVNode, VNode.render, Shows, PNode.node]
-    exact ⟨x, hx, hk, ha, hc ▸ MirrorsList.shows ch hl⟩
+    exact ⟨x, hx, hk, ha.1, hc ▸ MirrorsList.shows ch hl⟩
 theorem MirrorsList.shows : ∀ (ps : List PNode) {d : Dom}, MirrorsList d ps →
     ShowsList d (ps.map PNode.node) (VNode.renders (PNode.toVNodes ps))
   | [], _, _ => by simp [PNode.toVNodes, VNode.renders, ShowsList]
@@ -210,16 +210,18 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
           (setSelectorAttrs d.next (Selector.parse sel) d2))) := by
       simp only [createElm, Dom.createElement, Dom.alloc_fst, hr, tag, raw]
     obtain ⟨gs, sts, hgs⟩ := setSelectorAttrs_step d.next (Selector.parse sel) d2
-    have st3 := sts.trans (moduleCreate_step sel data pch d.next _)
+    have st3 := sts.trans (moduleCreate_step sel data pch d.next _ hattrs)
     generalize hd3 : moduleCreate (.elem sel data pch d.next)
       (setSelectorAttrs d.next (Selector.parse sel) d2) = d3 at hd st3
     rw [hd]
     have w3 := st3.wf cl.wf
     have hn2 : d2.nodes d.next = some { kind := .elem tag } := by
       rw [frame2 d.next (by omega)]; exact nd1
-    have hn3 : d3.nodes d.next = some { kind := .elem tag, attrs := renderAttrs sel data.attrs } := by
-      rw [st3.nodes, ite_eq_left rfl, hn2]
-      simp [hgs, setAll_selector sel _ hattrs]
+    obtain ⟨l3, hn3, hl3⟩ := st3.node hn2
+    have hm3 : AttrsMirror l3 (renderAttrs sel data.attrs) := by
+      obtain ⟨t3, v3⟩ := hl3 ⟨List.nodup_nil, by simp⟩
+      refine AttrsMirror.of_tidy t3 ?_
+      rw [v3, attrView_nil, Function.comp_apply, hgs, setAll_selector sel _ hattrs]
     have hroots : ∀ c ∈ pch, c.node ≠ d.next ∧ ∃ cx, d3.nodes c.node = some cx ∧ cx.parent = none := by
       intro c hc
       have hr := range2 c.node (PNode.mem_idsList.2 ⟨c, hc, PNode.node_mem_ids c⟩)
@@ -240,7 +242,7 @@ theorem createElm_spec : ∀ (v : VNode) (d : Dom), HeapWF d → v.WF →
         omega
       rw [ite_eq_right hnot, st3.other _ hin, frame2 i (by omega)]
       exact fr1 i hi
-    · refine ⟨_, by rw [nodes4, ite_eq_left rfl], rfl, rfl, by simp, ?_⟩
+    · refine ⟨_, by rw [nodes4, ite_eq_left rfl], rfl, hm3, by simp, ?_⟩
       refine MirrorsList.frame pch cl.mirrors (fun i hi => ?_)
       have hr := range2 i hi
       have hin : i ≠ d.next := by omega

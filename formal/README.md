@@ -22,8 +22,8 @@ It has two parts:
    text). The Lean model then replays each case and must make the same calls
    in the same order and leave the same DOM. Attribute writes do not go through
    `DomApi` (the Scala code calls `setAttribute` on the element), so they are
-   compared through the final DOM only. Last run: 10,005 cases, about 153,000
-   DOM operations, 0 mismatches.
+   compared through the final DOM only, each attribute with its namespace.
+   Last run: 10,008 cases, about 153,000 DOM operations, 0 mismatches.
 
 So the guarantee is: the algorithm, as modeled, is proved correct for every
 input that meets `VNode.WF`; and the model matches the Scala implementation on
@@ -104,15 +104,17 @@ theorem createElm_valid (v : VNode) (d : Dom) (hw : HeapWF d) (hok : d.ok = true
 Within those names, the theorems cover a key the selector also sets (`div#a`
 with `{id: "z"}`: removing the key restores `id="a"`), a key respelled in
 another case between patches (the update removes before it writes), and
-namespaced keys, on HTML elements.
+namespaced keys, which land in the namespace their prefix names, on HTML
+elements.
 
 ## How the proof is split
 
 | File | What it proves |
 | --- | --- |
-| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `createElement` and the attribute calls (`setAttribute` and `removeAttribute` lowercase the name, the namespaced ones do not), `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`. A misplaced `insertBefore` or `removeChild` sets `ok := false`, standing in for a DOM exception. |
-| `Spec.lean` | What "correct" means: `VNode.render`, `Shows`, `Mirrors`, `HeapWF`, `PPre`, `Valid`, and the input restriction `VNode.WF`. |
+| `Dom.lean` | The DOM model: nodes with kind, attributes, children and parent; `createElement` and the attribute calls, on the DOM's ordered attribute list of namespace, prefix, local name and value (`setAttribute` and `removeAttribute` lowercase the name and act on the first attribute with that qualified name; the namespaced ones find the attribute by namespace and local name), `insertBefore` (with the DOM's own "move if already attached" rule), `removeChild`, `setText`. A misplaced `insertBefore` or `removeChild` sets `ok := false`, standing in for a DOM exception. |
+| `Spec.lean` | What "correct" means: `VNode.render`, `Shows`, `Mirrors`, `HeapWF`, `PPre`, `Valid`, and the input restriction `VNode.WF`. An element's attributes are read by qualified name, as a namespace and a value (`attrView`); `Shows` also asks for one attribute per qualified name, and `Mirrors` for each attribute to be in the namespace its prefix names (`Attr.Canon`). |
 | `Proofs/Basic.lean` | Each DOM operation keeps the heap well formed; exact effect of `insertBefore` and `removeChild`. |
+| `Proofs/AttrList.lean` | On such a list, each attribute call rewrites the view at one qualified name: the first match by qualified name, and the match by namespace and local name, are the same attribute. |
 | `Proofs/Attrs.lean` | The selector's `id`/`class` and the Attributes module: after `create` the element's attributes are `renderAttrs`; after `update` (removals, which fall back to the selector's value, then writes) they are exactly the new ones. |
 | `Proofs/Create.lean` | `createElm` builds a fresh subtree that shows `v.render` and is a `Valid` input to `patch`. |
 | `Proofs/PlaceList.lean` | `placeAroundAnchors`, the reordering loop used when an unkeyed child matched after the common prefix, on plain lists: after it, the reused and new children appear in the new order. This is the hardest lemma. |
@@ -135,8 +137,17 @@ The proof says nothing about these parts of the library:
   the selector's `id` and `class` without lowercasing it. The proof does not
   cover that branch.
 * hydration (`toVNode`). An attribute parsed from HTML markup has no
-  namespace even when its name has a prefix, so dropping the key `xml:lang`
-  from a vnode hydrated from `<div xml:lang="fr">` leaves the attribute.
+  namespace even when its name has a prefix, so `Mirrors` does not hold for
+  `<div xml:lang="fr">` hydrated into the key `xml:lang`. Dropping that key
+  still removes the attribute: after `removeAttributeNS` with the key's
+  namespace, the Attributes module calls `removeAttributeNS(null, key)`, which
+  finds it (`hydrated` in `Proofs/Attrs.lean` checks this on the model). On
+  the lists `Mirrors` allows that second call removes nothing, so the proof is
+  unchanged. `removeAttribute(key)` would also find the parsed attribute, but
+  it lowercases the key, so dropping `xlink:HREF` from `{xlink:HREF,
+  xlink:href}` would remove both, and the proof does not go through. Changing
+  the hydrated key's value instead of dropping it still leaves the parsed
+  attribute next to the namespaced one that `setAttributeNS` adds.
 * exceptions on names. `createElement` and `setAttribute` throw
   `InvalidCharacterError` on an invalid name, such as the empty tag that the
   selector `#a` gives or a key with a space in it. The model accepts every
@@ -144,11 +155,12 @@ The proof says nothing about these parts of the library:
   conservative subset (an ASCII letter, then ASCII letters, digits, `-`, `_`
   or `.`, after one of the three prefixes for a namespaced key) that browsers
   accept under both the current DOM standard and its older XML `Name` rule.
-* namespaces as such. The DOM keys a namespaced attribute by namespace and
-  local name; the model keys it by its qualified name, which is the same
-  thing because the Attributes module ties each prefix to one namespace. It
-  cannot hold a namespaced attribute and a plain one with the same qualified
-  name (`xlink:href` and `XLINK:href` lowercased), which `WF` keeps apart.
+* attributes the Attributes module did not write. `Mirrors` asks for one
+  attribute per qualified name, each in the namespace `namespaceOf` reads from
+  its prefix and with that prefix; an attribute set by other code with another
+  prefix, or a plain and a namespaced attribute with one qualified name
+  (`XLINK:HREF` lowercased and `xlink:href`), is outside it. The DOM model
+  holds such lists, and the conformance check exercises the second case.
 * the Props, Class, Style, Dataset and EventListeners modules (only Attributes is modeled)
 * the first patch of a raw DOM element, `patch(elm: dom.Element, vnode)`. It
   wraps `elm` with `emptyNodeAt`, which keeps its tag, id and classes but
@@ -158,7 +170,10 @@ The proof says nothing about these parts of the library:
   into `div [text "a"]` appends, leaving both texts. The conformance suite
   only uses this entry point to mount `old` on an empty placeholder.
 * the DOM throwing `HierarchyRequestError` when a node is inserted into its own descendant (`patch` never does that, but the DOM model does not check it)
-* the order in which attributes were set (the model compares attribute maps, not insertion order)
+* the order of attributes. The model keeps the DOM's order and uses it for
+  first-match lookups, but `Shows` and the conformance check compare
+  attributes by qualified name and namespace: patching and rendering from
+  scratch can order them differently.
 
 Comment nodes are never reused by `sameVnode`, which matches the Scala code.
 

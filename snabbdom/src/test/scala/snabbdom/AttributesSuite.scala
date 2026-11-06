@@ -216,6 +216,33 @@ class AttributesSuite extends BaseSuite {
         assertEquals(falsed.attributes.length, 0)
     }
 
+    test("remove a hydrated prefixed attribute, which has no namespace") {
+      val host = dom.document.createElement("div")
+      host.innerHTML = """<div xml:lang="fr" xlink:href="#a"></div>"""
+      val elm = host.firstChild.asInstanceOf[dom.Element]
+      assertEquals(elm.getAttributeNode("xml:lang").namespaceURI, null)
+      val hydrated = toVNode(elm)
+      val dropped = patch(hydrated, h("div")).node.asInstanceOf[dom.Element]
+      assertEquals(dropped.attributes.length, 0)
+    }
+
+    vnode0.test("drop a namespaced key without its other-case sibling") {
+      vnode0 =>
+        val both = h(
+          "div",
+          VNodeData(attrs = Map("xlink:HREF" -> "#a", "xlink:href" -> "#b"))
+        )
+        val bothP = patch(vnode0, both)
+        assertEquals(bothP.node.asInstanceOf[dom.Element].attributes.length, 2)
+        val one = h("div", VNodeData(attrs = Map("xlink:href" -> "#b")))
+        val elm = patch(bothP, one).node.asInstanceOf[dom.Element]
+        assertEquals(elm.attributes.length, 1)
+        assertEquals(
+          elm.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+          "#b"
+        )
+    }
+
   }
 
   group("boolean attribute") {
